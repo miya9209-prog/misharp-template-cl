@@ -76,8 +76,16 @@ st.markdown("""
 <div class="ms-logo-row">
   <div class="ms-logo">MS</div>
   <div>
-    <div class="ms-title">미샵 <span>템플릿</span> OS</div>
-    <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
+    <a href="?" target="_self" style="text-decoration:none">
+      <div class="ms-title">미샵 <span>템플릿</span> OS</div>
+    </a>
+    <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공
+      &nbsp;·&nbsp;
+      <a href="?" target="_self"
+         style="color:rgba(255,255,255,0.28);font-size:10px;text-decoration:none">
+        ⟳ 처음으로
+      </a>
+    </div>
   </div>
 </div>""", unsafe_allow_html=True)
 
