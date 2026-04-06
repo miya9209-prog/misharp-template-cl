@@ -24,7 +24,12 @@ def _ensure():
 def load_all() -> dict:
     _ensure()
     if META_FILE.exists():
-        return json.loads(META_FILE.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(META_FILE.read_text(encoding="utf-8"))
+            # 각 값이 dict인지 검증, 아니면 제외
+            return {k: v for k, v in data.items() if isinstance(v, dict)}
+        except Exception:
+            return {}
     return {}
 
 
