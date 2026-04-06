@@ -120,13 +120,17 @@ hr{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}
 
 # ── 헤더 (클릭 링크 없음 - 버튼 차단 문제 방지)
 st.markdown("""
-<div class="ms-header">
-  <div class="ms-logo">MS</div>
-  <div>
-    <div class="ms-title">미샵 <span>템플릿</span> OS</div>
-    <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
+<a href="/" target="_self" style="text-decoration:none;display:block;cursor:pointer">
+  <div class="ms-header">
+    <div class="ms-logo">MS</div>
+    <div>
+      <div class="ms-title">미샵 <span>템플릿</span> OS
+        <span style="color:rgba(255,255,255,0.25);font-size:11px;font-weight:400;margin-left:8px">↺ 처음으로</span>
+      </div>
+      <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
+    </div>
   </div>
-</div>
+</a>
 """, unsafe_allow_html=True)
 
 # ── 세션 초기화

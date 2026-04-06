@@ -1,9 +1,9 @@
 """
-page_psd_use.py
-규칙:
-  1. col_right 안에 st.button / st.columns 절대 없음
-  2. st.markdown으로 여는 <div>는 반드시 같은 호출 안에서 닫음
-  3. 버튼 key는 모두 명시적으로 지정
+page_psd_use.py — ③ 템플릿 불러오기
+구조:
+  - 좌측: 레이어 버튼 목록 + 활성 레이어 입력칸 (텍스트/이미지)
+  - 우측: PSD 전체 이미지 (스크롤 가능, 레이어 오버레이)
+  - col_right 안에 st.button/st.columns 절대 없음
 """
 import streamlit as st
 import io, sys, os, base64, zipfile
@@ -18,7 +18,8 @@ from utils.psd_parser import psd_to_preview_jpg
 from utils.psd_jsx_builder import build_psd_edit_jsx
 
 
-def _overlay_b64(prev_bytes, editable_layers, active_idx, inputs, W_orig, H_orig):
+def _make_overlay(prev_bytes, editable_layers, active_idx, inputs, W_orig, H_orig):
+    """레이어 오버레이 이미지 → base64"""
     img = Image.open(io.BytesIO(prev_bytes)).convert("RGBA")
     pW, pH = img.size
     sx, sy = pW / W_orig, pH / H_orig
@@ -26,21 +27,22 @@ def _overlay_b64(prev_bytes, editable_layers, active_idx, inputs, W_orig, H_orig
     drw = ImageDraw.Draw(ov)
     for l in editable_layers:
         t, le, b, r = l['rect']
-        x1,y1,x2,y2 = int(le*sx),int(t*sy),int(r*sx),int(b*sy)
+        x1, y1 = int(le*sx), int(t*sy)
+        x2, y2 = int(r*sx),  int(b*sy)
         if x2-x1 < 3 or y2-y1 < 3:
             continue
-        lt   = l['type']
-        is_a = (l['idx'] == active_idx)
-        has_v= bool(inputs.get(l['idx'],{}).get('value'))
+        lt    = l['type']
+        is_a  = (l['idx'] == active_idx)
+        has_v = bool(inputs.get(l['idx'], {}).get('value'))
         if has_v:
-            fill,outline,lw = (50,220,80,55),(50,220,80,230),3
+            fill, outline, lw = (50,220,80,55), (50,220,80,220), 3
         elif is_a:
-            fill    = (255,200,0,90) if lt=='text' else (100,160,255,90)
+            fill    = (255,200,0,90)  if lt=='text' else (100,160,255,90)
             outline = (255,200,0,255) if lt=='text' else (100,160,255,255)
             lw = 5
         else:
-            fill    = (255,200,0,20) if lt=='text' else (100,160,255,15)
-            outline = (255,200,0,120) if lt=='text' else (100,160,255,90)
+            fill    = (255,200,0,18)  if lt=='text' else (100,160,255,13)
+            outline = (255,200,0,110) if lt=='text' else (100,160,255,80)
             lw = 1
         drw.rectangle([x1,y1,x2,y2], fill=fill, outline=outline, width=lw)
         if is_a:
@@ -58,17 +60,21 @@ def _overlay_b64(prev_bytes, editable_layers, active_idx, inputs, W_orig, H_orig
 
 
 def render():
-    st.markdown('<div class="section-title">③ 템플릿 불러오기</div>',
-                unsafe_allow_html=True)
-    st.markdown('<div class="section-desc">PSD 템플릿을 불러와 텍스트·이미지를 교체하고 새 PSD로 저장하세요</div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="section-title">③ 템플릿 불러오기</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-desc">PSD 템플릿을 불러와 텍스트·이미지를 교체하고 새 PSD로 저장하세요</div>', unsafe_allow_html=True)
 
-    # ── 세션 초기화 (key 없을 때만)
     for k, v in [("pu_sel",None),("pu_inp",{}),("pu_act",None),("pu_prev",None)]:
         if k not in st.session_state:
             st.session_state[k] = v
 
-    all_tpl = {k:v for k,v in load_all().items() if v.get("template_type")=="psd"}
+    # ── 템플릿 목록
+    all_tpl = {}
+    try:
+        all_tpl = {k:v for k,v in load_all().items()
+                   if isinstance(v, dict) and v.get("template_type")=="psd"}
+    except Exception:
+        pass
+
     if not all_tpl:
         st.info("PSD 템플릿이 없습니다. ① PSD 템플릿 생성 탭에서 먼저 만들어보세요.")
         return
@@ -76,13 +82,14 @@ def render():
     # ── 템플릿 선택 화면
     if not st.session_state.pu_sel:
         st.markdown("### PSD 템플릿 선택")
-        for row in range(0, len(all_tpl), 4):
+        tpl_list = list(all_tpl.items())
+        for row in range(0, len(tpl_list), 4):
             cols = st.columns(4, gap="medium")
-            for ci, (tid, meta) in enumerate(list(all_tpl.items())[row:row+4]):
+            for ci, (tid, meta) in enumerate(tpl_list[row:row+4]):
                 with cols[ci]:
-                    st.markdown(f"**{meta['name']}**")
-                    w,h = meta.get("canvas_size",[0,0])
-                    st.caption(f"PSD · {w}×{h}px · {meta['created_at'][:10]}")
+                    st.markdown(f"**{meta.get('name','')}**")
+                    w, h = meta.get("canvas_size",[0,0])
+                    st.caption(f"PSD · {w}×{h}px · {meta.get('created_at','')[:10]}")
                     if meta.get("description"):
                         st.caption(meta["description"])
                     if st.button("사용 →", key=f"tsel_{tid}",
@@ -101,11 +108,12 @@ def render():
                             unsafe_allow_html=True)
         return
 
-    # ── 데이터 로드
+    # ── 작업 화면 데이터 로드
     tid       = st.session_state.pu_sel
     meta      = load_one(tid)
     info      = load_psd_info(tid)
     psd_bytes = get_psd_bytes(tid)
+
     if not meta or not info or not psd_bytes:
         st.error("템플릿 데이터를 불러오지 못했습니다")
         st.session_state.pu_sel = None
@@ -121,6 +129,7 @@ def render():
     txt_lays = [l for l in editable if l['type']=='text']
     img_lays = [l for l in editable if l['type']=='pixel']
 
+    # 미리보기 로드
     if st.session_state.pu_prev is None:
         with st.spinner("미리보기 로딩..."):
             try:
@@ -128,37 +137,37 @@ def render():
             except Exception:
                 st.session_state.pu_prev = b""
 
-    inp = st.session_state.pu_inp
-    act = st.session_state.pu_act
+    inp       = st.session_state.pu_inp
+    act       = st.session_state.pu_act
     act_layer = next((l for l in layers if l['idx']==act), None)
 
-    # 상단 바
-    st.info(f"📋 **{meta['name']}** | PSD {W}×{H}px | ✏️ {len(txt_lays)} · 🖼️ {len(img_lays)}")
+    # 상단 정보
+    st.info(f"📋 **{meta['name']}** | {W}×{H}px | ✏️ {len(txt_lays)}개 · 🖼️ {len(img_lays)}개")
     if st.button("← 다른 템플릿 선택", key="pu_back_btn"):
         st.session_state.pu_sel = None
         st.rerun()
     st.divider()
 
-    # ══════════════════════════════════════════════════════════
-    # 2열: col_left(입력+버튼), col_right(이미지만)
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════
+    # 2열 레이아웃
+    # 왼쪽: 레이어 목록 + 입력칸  (st.button 있음)
+    # 오른쪽: 이미지만             (st.button/st.columns 없음)
+    # ══════════════════════════════════════════════
     col_left, col_right = st.columns([1, 1], gap="large")
 
-    # ─── 왼쪽 ───────────────────────────────────────────────
+    # ── 왼쪽
     with col_left:
-        st.markdown("### 입력")
-
-        # 활성 레이어 입력칸
+        # 활성 레이어 입력칸 (상단 고정)
         if act_layer:
-            lt   = act_layer['type']
-            t_col= "#C8A876" if lt=='text' else "#78a8f0"
-            icon = "✏️" if lt=='text' else "🖼️"
-            cur_inp = inp.get(act_layer['idx'], {})
+            lt    = act_layer['type']
+            t_col = "#C8A876" if lt=='text' else "#78a8f0"
+            icon  = "✏️" if lt=='text' else "🖼️"
+            bg    = "rgba(200,168,118,0.10)" if lt=='text' else "rgba(100,160,230,0.08)"
+            cur   = inp.get(act_layer['idx'], {})
 
-            # 타이틀 (div 열고 닫기 한 번에)
             st.markdown(
-                f'<p style="background:{"rgba(200,168,118,0.10)" if lt=="text" else "rgba(100,160,230,0.08)"};'
-                f'border:2px solid {t_col};border-radius:8px;padding:8px 12px;margin:0 0 8px 0;'
+                f'<p style="background:{bg};border:2px solid {t_col};'
+                f'border-radius:8px;padding:8px 12px;margin:0 0 6px 0;'
                 f'color:{t_col};font-weight:700;font-size:14px">'
                 f'{icon} {act_layer["name"]}'
                 f'<span style="color:#888;font-size:11px;font-weight:400;margin-left:8px">'
@@ -172,18 +181,19 @@ def render():
                     st.caption(f"원본: {orig}")
                 new_txt = st.text_area(
                     "새 텍스트",
-                    value=cur_inp.get('value',''),
+                    value=cur.get('value',''),
                     height=90,
                     key=f"ptxt{act_layer['idx']}",
                     placeholder="교체할 텍스트 (비우면 원본 유지)",
                 )
                 if new_txt.strip():
-                    inp[act_layer['idx']] = {'value':new_txt, 'type':'text'}
+                    inp[act_layer['idx']] = {'value': new_txt, 'type': 'text'}
                 elif act_layer['idx'] in inp:
                     del inp[act_layer['idx']]
                 st.session_state.pu_inp = inp
+
             else:
-                st.caption(f"권장 크기: {act_layer['w']}×{act_layer['h']}px")
+                st.caption(f"권장: {act_layer['w']}×{act_layer['h']}px")
                 up = st.file_uploader(
                     "교체할 이미지 (JPG / PNG)",
                     type=["jpg","jpeg","png"],
@@ -191,30 +201,31 @@ def render():
                 )
                 if up:
                     raw_img = up.read()
-                    inp[act_layer['idx']] = {'value':raw_img, 'type':'image'}
+                    inp[act_layer['idx']] = {'value': raw_img, 'type': 'image'}
                     st.session_state.pu_inp = inp
                     th = Image.open(io.BytesIO(raw_img))
                     th.thumbnail((200,160))
                     st.image(th, width=160, caption="선택된 이미지")
-                elif cur_inp.get('value'):
+                elif cur.get('value'):
                     st.success("✓ 이미지 교체 예정")
+
         else:
-            st.info("아래 레이어 버튼을 클릭하면 입력칸이 표시됩니다")
+            st.info("아래 목록에서 레이어를 선택하면 입력칸이 표시됩니다")
 
         st.divider()
 
-        # 레이어 버튼 목록
-        td = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
+        # 레이어 목록
+        td  = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
         id_ = sum(1 for l in img_lays if inp.get(l['idx'],{}).get('value'))
-        st.write(f"**레이어 목록** | ✏️ {td}/{len(txt_lays)}  🖼️ {id_}/{len(img_lays)}")
-        st.caption("버튼 클릭 → 위 입력칸 활성화 | ✅완료 ▶선택중 ○미입력")
+        st.write(f"**레이어 선택** | ✏️ {td}/{len(txt_lays)}  🖼️ {id_}/{len(img_lays)}")
+        st.caption("클릭 → 위 입력칸 활성화 | ✅완료  ▶선택중  ○미입력")
 
         if txt_lays:
-            st.write("✏️ **텍스트 레이어**")
+            st.write("**✏️ 텍스트 레이어**")
             for l in txt_lays:
-                is_a = (l['idx']==act)
-                has_v= bool(inp.get(l['idx'],{}).get('value'))
-                s    = "✅" if has_v else ("▶" if is_a else "○")
+                is_a  = (l['idx'] == act)
+                has_v = bool(inp.get(l['idx'],{}).get('value'))
+                s     = "✅" if has_v else ("▶" if is_a else "○")
                 if st.button(
                     f"{s}  ✏️  {l['name'][:32]}",
                     key=f"ptb{l['idx']}",
@@ -225,11 +236,11 @@ def render():
                     st.rerun()
 
         if img_lays:
-            st.write("🖼️ **이미지 레이어**")
+            st.write("**🖼️ 이미지 레이어**")
             for l in img_lays:
-                is_a = (l['idx']==act)
-                has_v= bool(inp.get(l['idx'],{}).get('value'))
-                s    = "✅" if has_v else ("▶" if is_a else "○")
+                is_a  = (l['idx'] == act)
+                has_v = bool(inp.get(l['idx'],{}).get('value'))
+                s     = "✅" if has_v else ("▶" if is_a else "○")
                 if st.button(
                     f"{s}  🖼️  {l['name'][:22]}  ({l['w']}×{l['h']})",
                     key=f"pib{l['idx']}",
@@ -239,58 +250,50 @@ def render():
                     st.session_state.pu_act = l['idx']
                     st.rerun()
         elif not img_lays:
-            st.caption("이미지 레이어 없음. ① PSD 생성에서 이미지 레이어 체크 후 재저장 필요.")
+            st.caption("이미지 레이어 없음 — ① PSD 생성에서 이미지 레이어 체크 후 재저장하세요")
 
-    # ─── 오른쪽: 이미지만 (st.button/st.columns 없음) ────────
+    # ── 오른쪽: 이미지만 (st.button/st.columns 절대 없음)
     with col_right:
-        st.markdown("**선택된 레이어**")
+        st.write("**PSD 미리보기**")
+        st.caption("🟡 텍스트  🔵 이미지  🟢 입력완료  ★ 선택중 | ↕ 스크롤")
+        if st.session_state.pu_prev:
+            b64 = _make_overlay(
+                st.session_state.pu_prev,
+                editable, act, inp, W, H,
+            )
+            # 스크롤 가능한 고정 높이 컨테이너
+            # col_right 내부이므로 height는 화면에 맞게 고정
+            st.markdown(f"""
+<div style="height:700px;overflow-y:scroll;overflow-x:hidden;
+            border:1px solid rgba(255,255,255,0.12);border-radius:8px;
+            background:#111;">
+  <img src="data:image/jpeg;base64,{b64}" style="width:100%;display:block;">
+</div>
+<div style="color:#888;font-size:11px;text-align:center;margin-top:4px">
+  ↕ 스크롤하여 전체 확인 | {W}×{H}px
+</div>""", unsafe_allow_html=True)
+
         if act_layer:
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
-            icon  = "✏️" if act_layer['type']=='text' else "🖼️"
             st.markdown(
-                f'<p style="background:{"rgba(200,168,118,0.1)" if act_layer[chr(39)+"type"+chr(39)]=="text" else "rgba(100,160,230,0.08)"};'
-                f'border:2px solid {t_col};border-radius:8px;padding:12px 16px;'
-                f'color:{t_col};font-weight:700;font-size:14px;margin-bottom:8px">'
-                f'{icon} {act_layer["name"]}<br>'
-                f'<span style="color:#888;font-size:11px;font-weight:400">'
-                f'{act_layer["w"]}×{act_layer["h"]}px</span></p>',
+                f'<div style="color:{t_col};font-weight:700;margin-top:6px;'
+                f'padding:6px;background:rgba(255,255,255,0.04);border-radius:6px;text-align:center">'
+                f'선택: {act_layer["name"]}</div>',
                 unsafe_allow_html=True,
             )
-        else:
-            st.info("왼쪽 레이어 버튼을 클릭하면 정보가 표시됩니다")
-
-        td = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
-        id_ = sum(1 for l in img_lays if inp.get(l['idx'],{}).get('value'))
-        st.write(f"**입력 현황** | ✏️ {td}/{len(txt_lays)}  🖼️ {id_}/{len(img_lays)}")
-
-    # ── columns 밖: 전체 PSD 이미지 (높이 제한 없음)
-    st.divider()
-    st.markdown("**PSD 미리보기** — 🟡 텍스트  🔵 이미지  🟢 입력완료  ★ 선택")
-    if st.session_state.pu_prev:
-        b64 = _overlay_b64(
-            st.session_state.pu_prev,
-            editable, act, inp, W, H,
-        )
-        st.markdown(
-            f'<img src="data:image/jpeg;base64,{b64}" '
-            f'style="width:100%;display:block;border-radius:8px;'
-            f'border:1px solid rgba(255,255,255,0.12);">',
-            unsafe_allow_html=True,
-        )
-        st.caption(f"{W}×{H}px 전체 이미지 | 페이지 스크롤로 확인")
 
     st.divider()
 
     # ── 출력
-    st.markdown('<div class="step-header">출력</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-header">출력 · PSD 스크립트 생성</div>', unsafe_allow_html=True)
     n_t = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
     n_i = sum(1 for l in img_lays if inp.get(l['idx'],{}).get('value'))
 
     if n_t + n_i == 0:
-        st.warning("교체할 내용을 먼저 입력하세요")
+        st.warning("교체할 내용을 먼저 입력하세요 (텍스트 또는 이미지)")
     else:
         st.success(f"✏️ 텍스트 {n_t}개 · 🖼️ 이미지 {n_i}개 교체 준비 완료")
-        if st.button("⚙️ PSD 스크립트 + JPG 생성",
+        if st.button("⚙️ PSD 스크립트 + 미리보기JPG 생성",
                      use_container_width=True, type="primary", key="pu_gen_btn"):
             with st.spinner("생성 중..."):
                 try:
@@ -324,7 +327,7 @@ def render():
                         mime="application/zip",
                         use_container_width=True,
                     )
-                    st.success("✅ 완료!")
-                    st.caption("포토샵 File > Scripts > Browse → .jsx 선택 (CS5~CC)")
+                    st.success("✅ 완료! 포토샵에서 .jsx 실행 → PSD 자동 저장")
+                    st.caption("File > Scripts > Browse → .jsx 선택 (CS5~CC 지원)")
                 except Exception as e:
                     st.error(f"오류: {e}")
