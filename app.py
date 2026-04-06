@@ -56,16 +56,7 @@ button[kind="primary"]:hover{
     background:linear-gradient(135deg,#D9BA8A,#C8A876) !important;
     box-shadow:0 4px 18px rgba(200,168,118,0.3) !important;
 }
-/* 버튼 텍스트 좌측 정렬 */
-button[kind="primary"] div[data-testid="stMarkdownContainer"],
-button[kind="secondary"] div[data-testid="stMarkdownContainer"],
-button p {
-    text-align:left !important;
-}
-[data-testid="stButton"] button {
-    text-align:left !important;
-    justify-content:flex-start !important;
-}
+
 [data-testid="stDownloadButton"] button{
     background:linear-gradient(135deg,#22c55e,#16a34a) !important;
     color:#fff !important;border:none !important;
@@ -117,14 +108,26 @@ hr{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}
 .info-card{background:rgba(200,168,118,0.07);border:1px solid rgba(200,168,118,0.2);border-radius:10px;padding:16px 20px;margin-bottom:16px;}
 [data-testid="stCaptionContainer"] p{color:#909090 !important;font-size:12px !important;}
 /* 버튼 텍스트 좌측 정렬 */
+div[data-testid="stButton"] > button {
+    width:100%;
+}
+div[data-testid="stButton"] > button > div {
+    width:100%;
+    display:flex;
+    justify-content:flex-start !important;
+    text-align:left !important;
+}
+div[data-testid="stButton"] > button > div > p {
+    text-align:left !important;
+    width:100%;
+}
+/* emotion cache 클래스 무관하게 버튼 내 모든 자식에 적용 */
+[data-testid="stButton"] button * {
+    text-align:left !important;
+}
 [data-testid="stButton"] button {
     text-align:left !important;
     justify-content:flex-start !important;
-    padding-left:12px !important;
-}
-[data-testid="stButton"] button p {
-    text-align:left !important;
-    width:100% !important;
 }
 .ms-footer{text-align:center;padding:20px 0 8px 0;}
 .ms-footer p{font-size:11px;color:#555 !important;line-height:1.7;margin:0;}
@@ -149,7 +152,7 @@ st.markdown("""
       <div class="ms-title">미샵 <span>템플릿</span> OS
         <span style="color:rgba(255,255,255,0.3);font-size:11px;font-weight:400;margin-left:10px">↺ 처음으로</span>
       </div>
-      <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
+      <div class="ms-sub">온라인몰 상세페이지 자동화를 위한 이미지 편집 템플릿 생성, 활용, 관리 프로그램</div>
     </div>
   </div>
 </a>
