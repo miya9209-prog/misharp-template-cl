@@ -73,21 +73,18 @@ hr{{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}}
 </style>""", unsafe_allow_html=True)
 
 st.markdown("""
-<div class="ms-logo-row">
-  <div class="ms-logo">MS</div>
-  <div>
-    <a href="?" target="_self" style="text-decoration:none">
-      <div class="ms-title">미샵 <span>템플릿</span> OS</div>
-    </a>
-    <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공
-      &nbsp;·&nbsp;
-      <a href="?" target="_self"
-         style="color:rgba(255,255,255,0.28);font-size:10px;text-decoration:none">
-        ⟳ 처음으로
-      </a>
+<a href="?" target="_self" style="text-decoration:none;display:block">
+  <div class="ms-logo-row" style="cursor:pointer">
+    <div class="ms-logo">MS</div>
+    <div style="flex:1">
+      <div class="ms-title">미샵 <span>템플릿</span> OS
+        <span style="color:rgba(255,255,255,0.22);font-size:11px;
+              font-weight:400;margin-left:10px">⟳ 처음으로</span>
+      </div>
+      <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
     </div>
   </div>
-</div>""", unsafe_allow_html=True)
+</a>""", unsafe_allow_html=True)
 
 st.divider()
 
