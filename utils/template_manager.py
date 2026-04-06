@@ -25,9 +25,19 @@ def load_all() -> dict:
     _ensure()
     if META_FILE.exists():
         try:
-            data = json.loads(META_FILE.read_text(encoding="utf-8"))
-            # 각 값이 dict인지 검증, 아니면 제외
-            return {k: v for k, v in data.items() if isinstance(v, dict)}
+            raw = META_FILE.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                return {}
+            # 값이 dict이고 name 키가 있는 것만 반환
+            result = {}
+            for k, v in data.items():
+                try:
+                    if isinstance(v, dict) and isinstance(v.get("name"), str):
+                        result[k] = v
+                except Exception:
+                    continue
+            return result
         except Exception:
             return {}
     return {}
