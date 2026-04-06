@@ -6,7 +6,6 @@ page_psd_use.py
   3. 버튼 key는 모두 명시적으로 지정
 """
 import streamlit as st
-import streamlit.components.v1 as components
 import io, sys, os, base64, zipfile
 from datetime import datetime
 from PIL import Image, ImageDraw
@@ -248,35 +247,19 @@ def render():
         st.caption("🟡 텍스트  🔵 이미지  🟢 입력완료")
 
         if st.session_state.pu_prev:
-            # 높이: 왼쪽 레이어 버튼 수 기반
-            btn_h   = 44                         # 버튼 1개 높이(px)
-            left_h  = (
-                120                              # 입력칸 고정 영역
-                + len(txt_lays) * btn_h
-                + len(img_lays) * btn_h
-                + 140                            # 헤더·캡션·divider 등
-            )
-            viewer_h = max(600, min(left_h, 1600))
-
             b64 = _overlay_b64(
                 st.session_state.pu_prev,
                 editable, act, inp, W, H,
             )
-            html = (
-                "<!DOCTYPE html><html><head><style>"
-                "body{margin:0;background:#0a0a0f;}"
-                f".w{{width:100%;height:{viewer_h}px;overflow-y:scroll;"
-                "overflow-x:hidden;background:#111;"
-                "border:1px solid rgba(255,255,255,0.12);border-radius:8px;}}"
-                "img{width:100%;display:block;}"
-                ".h{color:#888;font-size:11px;text-align:center;padding:4px;"
-                "font-family:sans-serif;background:#0a0a0f;}"
-                "</style></head><body>"
-                f'<div class="w"><img src="data:image/jpeg;base64,{b64}"/></div>'
-                f'<div class="h">↕ 스크롤 확인 | {W}×{H}px</div>'
-                "</body></html>"
+            # components.html 제거 → img 태그 직접 사용
+            # (iframe이 좌측 col 덮어 버튼 클릭 차단하는 문제 해결)
+            st.markdown(
+                f'<img src="data:image/jpeg;base64,{b64}" '
+                f'style="width:100%;display:block;border-radius:8px;'
+                f'border:1px solid rgba(255,255,255,0.12);">',
+                unsafe_allow_html=True,
             )
-            components.html(html, height=viewer_h+32, scrolling=False)
+            st.caption(f"{W}×{H}px | 전체 이미지 표시 | 스크롤로 확인")
 
         if act_layer:
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
