@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import io, sys, os, base64
 from PIL import Image, ImageDraw
 
@@ -35,19 +34,13 @@ def show_scrollable_image(img_bytes: bytes, height_px: int = 560, highlight_zone
     img.save(buf, "JPEG", quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode()
 
-    html = f"""<!DOCTYPE html><html><head><style>
-        body{{margin:0;padding:0;background:#0a0a0f;}}
-        .v{{width:100%;height:{height_px}px;overflow-y:scroll;overflow-x:hidden;
-            background:#111;border:1px solid rgba(255,255,255,0.12);
-            border-radius:8px;box-sizing:border-box;}}
-        .v img{{width:100%;display:block;}}
-        .info{{color:#888;font-size:11px;text-align:center;padding:4px;
-               font-family:sans-serif;background:#0a0a0f;}}
-    </style></head><body>
-        <div class="v"><img src="data:image/jpeg;base64,{b64}"/></div>
-        <div class="info">↕ 스크롤하여 전체 확인 | {W}×{H}px</div>
-    </body></html>"""
-    components.html(html, height=height_px+30, scrolling=False)
+    st.markdown(
+        f'<img src="data:image/jpeg;base64,{b64}" '
+        f'style="width:100%;display:block;border-radius:8px;'
+        f'border:1px solid rgba(255,255,255,0.12);">',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"{W}×{H}px | 페이지 스크롤로 전체 확인")
 
 
 def render():

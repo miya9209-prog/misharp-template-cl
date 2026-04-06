@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import io, sys, os, base64
 from PIL import Image, ImageDraw
 
@@ -201,8 +200,19 @@ def render():
 
         disp_bytes = st.session_state.u_preview if st.session_state.u_preview else source_bytes
         label_txt  = "합성 결과" if st.session_state.u_preview else "템플릿 원본"
-        html = make_scrollable_viewer(disp_bytes, highlight_zone=az, all_zones=zones, height=650)
-        components.html(html, height=680, scrolling=False)
+        if disp_bytes:
+            import base64
+            disp_img = __import__('PIL.Image', fromlist=['Image']).Image.open(
+                __import__('io').BytesIO(disp_bytes)).convert("RGB")
+            buf = __import__('io').BytesIO()
+            disp_img.save(buf, "JPEG", quality=85)
+            b64_disp = base64.b64encode(buf.getvalue()).decode()
+            st.markdown(
+                f'<img src="data:image/jpeg;base64,{b64_disp}" '
+                f'style="width:100%;display:block;border-radius:8px;'
+                f'border:1px solid rgba(255,255,255,0.12);">',
+                unsafe_allow_html=True,
+            )
 
         if az:
             t_col = "#C8A876" if az["type"]=="image" else "#78a8f0"

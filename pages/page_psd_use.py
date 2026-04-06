@@ -243,27 +243,41 @@ def render():
 
     # ─── 오른쪽: 이미지만 (st.button/st.columns 없음) ────────
     with col_right:
-        st.markdown("### PSD 미리보기")
-        st.caption("🟡 텍스트  🔵 이미지  🟢 입력완료")
-
-        if st.session_state.pu_prev:
-            b64 = _overlay_b64(
-                st.session_state.pu_prev,
-                editable, act, inp, W, H,
-            )
-            # components.html 제거 → img 태그 직접 사용
-            # (iframe이 좌측 col 덮어 버튼 클릭 차단하는 문제 해결)
-            st.markdown(
-                f'<img src="data:image/jpeg;base64,{b64}" '
-                f'style="width:100%;display:block;border-radius:8px;'
-                f'border:1px solid rgba(255,255,255,0.12);">',
-                unsafe_allow_html=True,
-            )
-            st.caption(f"{W}×{H}px | 전체 이미지 표시 | 스크롤로 확인")
-
+        st.markdown("**선택된 레이어**")
         if act_layer:
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
-            st.write(f"**선택:** {act_layer['name']}")
+            icon  = "✏️" if act_layer['type']=='text' else "🖼️"
+            st.markdown(
+                f'<p style="background:{"rgba(200,168,118,0.1)" if act_layer[chr(39)+"type"+chr(39)]=="text" else "rgba(100,160,230,0.08)"};'
+                f'border:2px solid {t_col};border-radius:8px;padding:12px 16px;'
+                f'color:{t_col};font-weight:700;font-size:14px;margin-bottom:8px">'
+                f'{icon} {act_layer["name"]}<br>'
+                f'<span style="color:#888;font-size:11px;font-weight:400">'
+                f'{act_layer["w"]}×{act_layer["h"]}px</span></p>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("왼쪽 레이어 버튼을 클릭하면 정보가 표시됩니다")
+
+        td = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
+        id_ = sum(1 for l in img_lays if inp.get(l['idx'],{}).get('value'))
+        st.write(f"**입력 현황** | ✏️ {td}/{len(txt_lays)}  🖼️ {id_}/{len(img_lays)}")
+
+    # ── columns 밖: 전체 PSD 이미지 (높이 제한 없음)
+    st.divider()
+    st.markdown("**PSD 미리보기** — 🟡 텍스트  🔵 이미지  🟢 입력완료  ★ 선택")
+    if st.session_state.pu_prev:
+        b64 = _overlay_b64(
+            st.session_state.pu_prev,
+            editable, act, inp, W, H,
+        )
+        st.markdown(
+            f'<img src="data:image/jpeg;base64,{b64}" '
+            f'style="width:100%;display:block;border-radius:8px;'
+            f'border:1px solid rgba(255,255,255,0.12);">',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"{W}×{H}px 전체 이미지 | 페이지 스크롤로 확인")
 
     st.divider()
 
