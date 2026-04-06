@@ -120,3 +120,63 @@ def update_bg(tid: str, bg_color: str):
     if tid in meta:
         meta[tid]["bg_color"] = bg_color
         _save_meta(meta)
+
+
+# ── PSD 템플릿 전용 ────────────────────────────────────────
+
+def save_psd_template(
+    name: str,
+    psd_bytes: bytes,
+    psd_info: dict,      # parse_psd() 반환값 (raw 제외)
+    description: str = "",
+) -> str:
+    """PSD 기반 템플릿 저장. tid 반환."""
+    _ensure()
+    tid  = "psd_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    tdir = TEMPLATE_DIR / tid
+    tdir.mkdir(exist_ok=True)
+
+    # 원본 PSD 저장
+    (tdir / "source.psd").write_bytes(psd_bytes)
+
+    # 레이어 정보 JSON (raw 제외)
+    info_save = {k:v for k,v in psd_info.items() if k != 'raw'}
+    (tdir / "psd_info.json").write_text(
+        json.dumps(info_save, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 병합 미리보기 썸네일
+    try:
+        from utils.psd_parser import psd_to_preview_jpg
+        prev = psd_to_preview_jpg(psd_bytes, max_width=360)
+        (tdir / "thumb.jpg").write_bytes(prev)
+    except Exception:
+        pass
+
+    meta = load_all()
+    meta[tid] = {
+        "id": tid, "name": name, "description": description,
+        "template_type": "psd",
+        "canvas_size": [psd_info["width"], psd_info["height"]],
+        "num_layers": psd_info["num_layers"],
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "path": str(tdir),
+    }
+    _save_meta(meta)
+    return tid
+
+
+def load_psd_info(tid: str) -> dict | None:
+    """PSD 템플릿의 레이어 정보 반환."""
+    m = load_one(tid)
+    if not m: return None
+    p = Path(m["path"]) / "psd_info.json"
+    if not p.exists(): return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def get_psd_bytes(tid: str) -> bytes | None:
+    m = load_one(tid)
+    if not m: return None
+    p = Path(m["path"]) / "source.psd"
+    return p.read_bytes() if p.exists() else None
