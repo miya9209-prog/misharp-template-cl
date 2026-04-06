@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import io, sys, os, base64
 from PIL import Image, ImageDraw
 
@@ -13,37 +14,40 @@ def show_scrollable_image(img_bytes: bytes, height_px: int = 560, highlight_zone
     W, H = img.size
 
     if all_zones:
-        overlay = img.copy().convert("RGBA")
-        draw    = ImageDraw.Draw(overlay)
+        ov  = img.copy().convert("RGBA")
+        drw = ImageDraw.Draw(ov)
         for zone in all_zones:
             zx, zy, zw, zh = zone["x"], zone["y"], zone["w"], zone["h"]
-            ztype     = zone["type"]
-            is_active = highlight_zone and zone["label"] == highlight_zone["label"]
-            if is_active:
-                fill    = (255,200,0,55) if ztype=="image" else (0,160,255,55)
+            ztype = zone["type"]
+            active = highlight_zone and zone["label"] == highlight_zone["label"]
+            if active:
+                fill    = (255,200,0,65) if ztype=="image" else (0,160,255,65)
                 outline = (255,200,0,255) if ztype=="image" else (0,160,255,255)
-                draw.rectangle([zx,zy,zx+zw,zy+zh], fill=fill, outline=outline, width=4)
-                draw.rectangle([zx,zy,zx+zw,zy+34], fill=(0,0,0,150))
-                draw.text((zx+8, zy+8), f"{'🖼' if ztype=='image' else '✏'} {zone['label']}", fill=(255,255,255,255))
+                drw.rectangle([zx,zy,zx+zw,zy+zh], fill=fill, outline=outline, width=5)
+                drw.rectangle([zx,zy,zx+zw,zy+38], fill=(0,0,0,170))
+                drw.text((zx+8,zy+9), f"{'[IMG]' if ztype=='image' else '[TXT]'} {zone['label']}", fill=(255,255,255,255))
             else:
-                outline_dim = (200,168,118,70) if ztype=="image" else (100,160,230,70)
-                draw.rectangle([zx,zy,zx+zw,zy+zh], outline=outline_dim, width=2)
-        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+                col = (200,168,118,80) if ztype=="image" else (100,160,230,80)
+                drw.rectangle([zx,zy,zx+zw,zy+zh], outline=col, width=2)
+        img = Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
     buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=88)
+    img.save(buf, "JPEG", quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode()
 
-    st.markdown(f"""
-    <div style="height:{height_px}px;overflow-y:auto;overflow-x:hidden;
-                border:1px solid rgba(255,255,255,0.12);border-radius:10px;
-                background:#111;scroll-behavior:smooth;">
-        <img src="data:image/jpeg;base64,{b64}" style="width:100%;display:block;" />
-    </div>
-    <div style="color:#888;font-size:11px;margin-top:4px;text-align:center">
-        ↕ 스크롤하여 전체 이미지 확인 | {W}×{H}px
-    </div>
-    """, unsafe_allow_html=True)
+    html = f"""<!DOCTYPE html><html><head><style>
+        body{{margin:0;padding:0;background:#0a0a0f;}}
+        .v{{width:100%;height:{height_px}px;overflow-y:scroll;overflow-x:hidden;
+            background:#111;border:1px solid rgba(255,255,255,0.12);
+            border-radius:8px;box-sizing:border-box;}}
+        .v img{{width:100%;display:block;}}
+        .info{{color:#888;font-size:11px;text-align:center;padding:4px;
+               font-family:sans-serif;background:#0a0a0f;}}
+    </style></head><body>
+        <div class="v"><img src="data:image/jpeg;base64,{b64}"/></div>
+        <div class="info">↕ 스크롤하여 전체 확인 | {W}×{H}px</div>
+    </body></html>"""
+    components.html(html, height=height_px+30, scrolling=False)
 
 
 def render():
