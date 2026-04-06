@@ -67,6 +67,10 @@ def make_scrollable_viewer(img_bytes: bytes, highlight_zone: dict = None, all_zo
 
 
 def render():
+    for _k, _v in [("u_selected",None), ("u_inputs",{}),
+                   ("u_preview",None), ("u_active_zone",None)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
     st.markdown('<div class="section-title">② 템플릿 활용</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-desc">저장된 템플릿을 선택하고 이미지·카피를 입력한 뒤 JPG + 포토샵 스크립트로 출력하세요</div>', unsafe_allow_html=True)
 

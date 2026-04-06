@@ -44,6 +44,12 @@ def show_scrollable_image(img_bytes: bytes, height_px: int = 560, highlight_zone
 
 
 def render():
+    # 세션 초기화 (없으면 생성)
+    for _k, _v in [("openai_api_key",""), ("c_source",None), ("c_zones",[]),
+                   ("c_canvas",[800,1200]), ("c_preview",None), ("c_active_zone",None)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
     st.markdown('<div class="section-title">② JPG 템플릿 생성</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-desc">상세페이지 JPG를 올리면 AI가 이미지·카피 영역을 자동 감지합니다. 수정 후 템플릿으로 저장하세요.</div>', unsafe_allow_html=True)
 

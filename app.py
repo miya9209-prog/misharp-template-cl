@@ -129,6 +129,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ── 세션 초기화
+if "openai_api_key" not in st.session_state:
+    st.session_state.openai_api_key = ""
+
 # ── 탭: st.tabs() 네이티브 사용 (클릭 100% 보장)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "① PSD 템플릿 생성",
