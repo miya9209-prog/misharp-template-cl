@@ -9,10 +9,6 @@ st.set_page_config(
     layout="wide", initial_sidebar_state="collapsed",
 )
 
-for k,v in [("active_tab","jpg_create"),("openai_api_key","")]:
-    if k not in st.session_state: st.session_state[k] = v
-
-active = st.session_state.active_tab
 TABS = [
     ("jpg_create", "① JPG 템플릿 생성"),
     ("jpg_use",    "② JPG 템플릿 활용"),
@@ -21,7 +17,18 @@ TABS = [
     ("manage",     "⑤ 템플릿 관리"),
     ("guide",      "사용 가이드"),
 ]
-active_label = next(label for tid,label in TABS if tid==active)
+VALID_TABS = {tid for tid, _ in TABS}
+
+for k, v in [("active_tab", "jpg_create"), ("openai_api_key", "")]:
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# 저장된 탭 ID가 현재 탭 목록에 없으면 기본값으로 리셋
+if st.session_state.active_tab not in VALID_TABS:
+    st.session_state.active_tab = "jpg_create"
+
+active = st.session_state.active_tab
+active_label = next(label for tid, label in TABS if tid == active)
 
 st.markdown(f"""<style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=Montserrat:wght@600;800&display=swap');
