@@ -148,7 +148,9 @@ with tab3:
     from pages.page_psd_use import render; render()
 
 with tab4:
-    from pages.page_manage import render; render()
+    import importlib, pages.page_manage as _pm
+    importlib.reload(_pm)
+    _pm.render()
 
 with tab5:
     from pages.page_guide import render; render()
