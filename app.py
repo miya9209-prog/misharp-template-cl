@@ -60,7 +60,7 @@ h1,h2,h3{{color:#FFF !important;}}
 hr{{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}}
 .section-title{{font-size:20px;font-weight:700;color:#FFF !important;letter-spacing:-0.4px;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid rgba(200,168,118,0.3);}}
 .section-desc{{font-size:13px;color:#A0A0A0 !important;margin-bottom:20px;}}
-.ms-logo-row{{display:flex;align-items:center;gap:12px;margin-bottom:8px;}}
+.ms-logo-row{{display:flex;align-items:center;gap:12px;margin-bottom:0;padding:14px 0 10px 0;}}
 .ms-logo{{width:36px;height:36px;background:linear-gradient(135deg,#C8A876,#E8C99A);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;font-size:13px;color:#0A0A0F;}}
 .ms-title{{font-family:'Montserrat',sans-serif;font-size:19px;font-weight:800;color:#FFF;letter-spacing:-0.4px;}}
 .ms-title span{{color:#C8A876;}}
@@ -73,12 +73,17 @@ hr{{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}}
 </style>""", unsafe_allow_html=True)
 
 st.markdown("""
-<a href="?" target="_self" style="text-decoration:none;display:block">
-  <div class="ms-logo-row" style="cursor:pointer">
+<a href="?" target="_self"
+   style="text-decoration:none;display:block;
+          background:linear-gradient(135deg,#0D0D1A 0%,#10102A 60%,#0D0D1A 100%);
+          padding:16px 40px 12px 40px;margin:-20px -40px 0 -40px;
+          border-bottom:1px solid rgba(255,255,255,0.07);
+          cursor:pointer">
+  <div class="ms-logo-row">
     <div class="ms-logo">MS</div>
     <div style="flex:1">
       <div class="ms-title">미샵 <span>템플릿</span> OS
-        <span style="color:rgba(255,255,255,0.22);font-size:11px;
+        <span style="color:rgba(255,255,255,0.25);font-size:11px;
               font-weight:400;margin-left:10px">⟳ 처음으로</span>
       </div>
       <div class="ms-sub">상세페이지 자동화를 위한 이미지 편집 템플릿 제공</div>
