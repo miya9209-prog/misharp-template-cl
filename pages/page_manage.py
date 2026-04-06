@@ -157,10 +157,12 @@ def render():
                     b64 = _get_thumb_b64(tid)
                     if b64:
                         st.markdown(
+                            f'<div style="width:100%;height:110px;background:#111;'
+                            f'border-radius:6px;margin-top:6px;overflow:hidden;'
+                            f'border:1px solid rgba(255,255,255,0.08)">'
                             f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:100%;max-height:140px;object-fit:cover;'
-                            f'object-position:top;border-radius:6px;'
-                            f'border:1px solid rgba(255,255,255,0.08);margin-top:6px">',
+                            f'style="width:100%;height:110px;object-fit:contain;'
+                            f'object-position:top"></div>',
                             unsafe_allow_html=True,
                         )
                 except Exception:

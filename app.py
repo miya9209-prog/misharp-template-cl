@@ -116,15 +116,25 @@ hr{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}
 .step-header{background:rgba(200,168,118,0.08);border-left:3px solid #C8A876;padding:10px 16px;border-radius:0 8px 8px 0;margin:20px 0 12px 0;font-size:15px;font-weight:700;color:#E8C99A !important;}
 .info-card{background:rgba(200,168,118,0.07);border:1px solid rgba(200,168,118,0.2);border-radius:10px;padding:16px 20px;margin-bottom:16px;}
 [data-testid="stCaptionContainer"] p{color:#909090 !important;font-size:12px !important;}
+/* 버튼 텍스트 좌측 정렬 */
+[data-testid="stButton"] button {
+    text-align:left !important;
+    justify-content:flex-start !important;
+    padding-left:12px !important;
+}
+[data-testid="stButton"] button p {
+    text-align:left !important;
+    width:100% !important;
+}
 .ms-footer{text-align:center;padding:20px 0 8px 0;}
 .ms-footer p{font-size:11px;color:#555 !important;line-height:1.7;margin:0;}
 
 /* 헤더 로고 */
-.ms-header{display:flex;align-items:center;gap:12px;margin-bottom:0;padding:6px 0;}
-.ms-logo{width:36px;height:36px;background:linear-gradient(135deg,#C8A876,#E8C99A);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;font-size:13px;color:#0A0A0F;flex-shrink:0;}
-.ms-title{font-family:'Montserrat',sans-serif;font-size:19px;font-weight:800;color:#FFF;letter-spacing:-0.4px;}
+.ms-header{display:flex;align-items:center;gap:24px;margin-bottom:0;padding:10px 0;}
+.ms-logo{width:72px;height:72px;background:linear-gradient(135deg,#C8A876,#E8C99A);border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;font-size:26px;color:#0A0A0F;flex-shrink:0;}
+.ms-title{font-family:'Montserrat',sans-serif;font-size:38px;font-weight:800;color:#FFF;letter-spacing:-0.8px;}
 .ms-title span{color:#C8A876;}
-.ms-sub{font-size:11px;color:#888;margin-top:2px;}
+.ms-sub{font-size:14px;color:#888;margin-top:4px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,7 +142,7 @@ hr{border-color:rgba(255,255,255,0.1) !important;margin:16px 0 !important;}
 st.markdown("""
 <a href="/" target="_self" style="text-decoration:none;display:block;cursor:pointer;
    background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(255,255,255,0.06);
-   margin:-20px -40px 16px -40px;padding:18px 40px 14px 40px;">
+   margin:-20px -40px 16px -40px;padding:28px 40px 22px 40px;">
   <div class="ms-header">
     <div class="ms-logo">MS</div>
     <div>
