@@ -195,7 +195,7 @@ def render():
             st.markdown("**🖼️ 이미지 레이어**")
             for l in pix_layers:
                 is_active = (active == l['idx'])
-                checked   = editable_flags.get(l['idx'], False)  # 이미지는 기본 미체크
+                checked   = editable_flags.get(l['idx'], True)  # 이미지도 기본 체크
                 border = "2px solid #78a8f0" if is_active else "1px solid rgba(255,255,255,0.08)"
                 bg     = "rgba(100,160,230,0.1)" if is_active else "rgba(255,255,255,0.02)"
 

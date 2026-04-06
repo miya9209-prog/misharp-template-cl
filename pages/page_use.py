@@ -83,24 +83,30 @@ def render():
     if not st.session_state.u_selected:
         st.markdown("### 템플릿 선택")
         tpl_list = list(all_tpl.items())
-        for row_start in range(0, len(tpl_list), 3):
-            cols = st.columns(3, gap="medium")
-            for ci, (tid, meta) in enumerate(tpl_list[row_start:row_start+3]):
+        for row_start in range(0, len(tpl_list), 4):
+            cols = st.columns(4, gap="medium")
+            for ci, (tid, meta) in enumerate(tpl_list[row_start:row_start+4]):
                 with cols[ci]:
-                    b64 = get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.1)">', unsafe_allow_html=True)
+                    # 이름 + 버튼 상단
                     st.markdown(f"**{meta['name']}**")
-                    iz = sum(1 for z in meta["zones"] if z["type"]=="image")
-                    tz = sum(1 for z in meta["zones"] if z["type"]=="text")
-                    st.caption(f"🖼️ {iz} · ✏️ {tz} · {meta['canvas_size'][0]}×{meta['canvas_size'][1]}px")
+                    iz = sum(1 for z in meta.get("zones",[]) if z.get("type")=="image")
+                    tz = sum(1 for z in meta.get("zones",[]) if z.get("type")=="text")
+                    w, h = meta.get("canvas_size",[0,0])
+                    st.caption(f"🖼️{iz} ✏️{tz} · {w}×{h}px · {meta['created_at'][:10]}")
                     if meta.get("description"): st.caption(meta["description"])
-                    if st.button("이 템플릿 사용 →", key=f"sel_{tid}", use_container_width=True, type="primary"):
+                    if st.button("사용 →", key=f"sel_{tid}", use_container_width=True, type="primary"):
                         st.session_state.u_selected    = tid
                         st.session_state.u_inputs      = {}
                         st.session_state.u_preview     = None
                         st.session_state.u_active_zone = None
                         st.rerun()
+                    # 썸네일 하단 (작게)
+                    b64 = get_thumb_b64(tid)
+                    if b64:
+                        st.markdown(
+                            f'<img src="data:image/jpeg;base64,{b64}"                             style="width:100%;max-height:150px;object-fit:cover;object-position:top;                            border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:4px">',
+                            unsafe_allow_html=True,
+                        )
         return
 
     # ── 작업 화면
