@@ -51,7 +51,7 @@ def show_scrollable_image(img_bytes: bytes, height_px: int = 560, highlight_zone
 
 
 def render():
-    st.markdown('<div class="section-title">① 템플릿 생성</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">② JPG 템플릿 생성</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-desc">상세페이지 JPG를 올리면 AI가 이미지·카피 영역을 자동 감지합니다. 수정 후 템플릿으로 저장하세요.</div>', unsafe_allow_html=True)
 
     defaults = {"c_zones":[], "c_source":None, "c_preview":None,

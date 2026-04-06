@@ -10,14 +10,13 @@ st.set_page_config(
 )
 
 TABS = [
-    ("jpg_create", "① JPG 템플릿 생성"),
-    ("jpg_use",    "② JPG 템플릿 활용"),
-    ("psd_create", "③ PSD 템플릿 생성"),
-    ("psd_use",    "④ PSD 템플릿 활용"),
-    ("manage",     "⑤ 템플릿 관리"),
-    ("guide",      "사용 가이드"),
+    ("psd_create", "① PSD 템플릿 생성"),
+    ("jpg_create", "② JPG 템플릿 생성"),
+    ("psd_use",    "③ 템플릿 불러오기"),
+    ("manage",     "④ 템플릿 관리"),
+    ("guide",      "⑤ 사용 가이드"),
 ]
-VALID_TABS = {tid for tid, _ in TABS}
+VALID_TABS = {tid for tid, _ in TABS} | {"jpg_create","jpg_use","psd_create","psd_use","manage","guide"}
 
 for k, v in [("active_tab", "jpg_create"), ("openai_api_key", "")]:
     if k not in st.session_state:
@@ -92,12 +91,12 @@ for col,(tid,tlabel) in zip(cols,TABS):
 
 st.divider()
 
-if   active == "jpg_create": from pages.page_create     import render; render()
-elif active == "jpg_use":    from pages.page_use         import render; render()
-elif active == "psd_create": from pages.page_psd_create  import render; render()
-elif active == "psd_use":    from pages.page_psd_use     import render; render()
-elif active == "manage":     from pages.page_manage      import render; render()
-elif active == "guide":      from pages.page_guide       import render; render()
+if   active == "psd_create": from pages.page_psd_create import render; render()
+elif active == "jpg_create": from pages.page_create     import render; render()
+elif active == "psd_use":    from pages.page_psd_use    import render; render()
+elif active == "manage":     from pages.page_manage     import render; render()
+elif active == "guide":      from pages.page_guide      import render; render()
+elif active == "jpg_use":    from pages.page_use        import render; render()
 
 st.divider()
 st.markdown("""<div class="ms-footer">

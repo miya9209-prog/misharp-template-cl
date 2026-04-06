@@ -98,7 +98,7 @@ function handleClick(e) {{
 
 
 def render():
-    st.markdown('<div class="section-title">③ PSD 템플릿 생성</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">① PSD 템플릿 생성</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-desc">PSD 파일을 업로드하면 레이어를 자동 분석하여 템플릿으로 저장합니다</div>', unsafe_allow_html=True)
 
     for k, v in [("pc_info",None),("pc_bytes",None),("pc_prev",None),
