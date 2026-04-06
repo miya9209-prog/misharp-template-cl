@@ -56,6 +56,16 @@ button[kind="primary"]:hover{
     background:linear-gradient(135deg,#D9BA8A,#C8A876) !important;
     box-shadow:0 4px 18px rgba(200,168,118,0.3) !important;
 }
+/* 버튼 텍스트 좌측 정렬 */
+button[kind="primary"] div[data-testid="stMarkdownContainer"],
+button[kind="secondary"] div[data-testid="stMarkdownContainer"],
+button p {
+    text-align:left !important;
+}
+[data-testid="stButton"] button {
+    text-align:left !important;
+    justify-content:flex-start !important;
+}
 [data-testid="stDownloadButton"] button{
     background:linear-gradient(135deg,#22c55e,#16a34a) !important;
     color:#fff !important;border:none !important;

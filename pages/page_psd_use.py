@@ -247,29 +247,24 @@ def render():
 
             else:  # 이미지
                 st.caption(f"권장 크기: {act_layer['w']}×{act_layer['h']}px")
-                # 현재 레이어 위치 썸네일 표시 (어느 이미지인지 확인용)
+
+                # 파일 업로더 (썸네일보다 먼저 렌더링 - 클릭 확보)
+                up = st.file_uploader(
+                    "🖼️ 이미지 파일 선택 (JPG / PNG)",
+                    type=["jpg","jpeg","png"],
+                    key=f"pimg{act_layer['idx']}",
+                )
+
+                # 현재 레이어 위치 썸네일 (파일 업로더 아래)
                 thumb_b64 = _extract_layer_thumb(
                     psd_bytes, act_layer['idx'],
                     tuple(act_layer['rect']), thumb_h=70
                 )
                 if thumb_b64:
-                    st.markdown(
-                        f'<div style="margin-bottom:6px">'
-                        f'<div style="color:#888;font-size:11px;margin-bottom:3px">현재 위치 미리보기</div>'
-                        f'<img src="data:image/jpeg;base64,{thumb_b64}" '
-                        f'style="max-width:100%;height:70px;object-fit:cover;'
-                        f'border-radius:4px;border:1px solid rgba(255,255,255,0.15)">'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.caption("현재 레이어 위치")
+                    import base64 as _b64m
+                    st.image(io.BytesIO(_b64m.b64decode(thumb_b64)), width=200)
 
-                # 파일 업로더
-                up = st.file_uploader(
-                    "교체할 이미지 파일 선택",
-                    type=["jpg","jpeg","png"],
-                    key=f"pimg{act_layer['idx']}",
-                    help="클릭하면 파일 선택 창이 열립니다",
-                )
                 if up:
                     raw_img = up.read()
                     inp[act_layer['idx']] = {'value': raw_img, 'type': 'image'}

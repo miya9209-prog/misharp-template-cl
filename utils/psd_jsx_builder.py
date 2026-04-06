@@ -124,28 +124,38 @@ def build_psd_edit_jsx(
 
             layer_name = layer['name'].replace("'", "\\'")
             safe_name  = f"img_{layer_idx}"
+            lx  = layer['rect'][1]
+            ly  = layer['rect'][0]
+            lw2 = layer['w']
+            lh2 = layer['h']
+            cx  = lx + lw2 // 2
+            cy  = ly + lh2 // 2
             lines += [
-                f"    // 레이어: {layer['name']} ({layer['w']}×{layer['h']}px)",
+                f"    // 레이어: {layer['name']} ({lw2}×{lh2}px) → Smart Object",
                 f"    var {safe_name}B64 = '{b64}';",
                 f"    var {safe_name}File = decodeAndSaveTmp({safe_name}B64, 'misharp_{safe_name}.jpg');",
-                f"    var {safe_name}Doc = app.open({safe_name}File);",
-                f"    {safe_name}Doc.selection.selectAll();",
-                f"    {safe_name}Doc.selection.copy();",
-                f"    {safe_name}Doc.close(SaveOptions.DONOTSAVECHANGES);",
-                f"    app.activeDocument = doc;",
-                f"    var {safe_name}Layer = findLayerByName(doc, '{layer_name}');",
-                f"    if ({safe_name}Layer) {{",
-                f"        doc.activeLayer = {safe_name}Layer;",
-                f"        var newLayer = doc.artLayers.add();",
-                f"        newLayer.name = '{layer_name}';",
-                f"        doc.paste();",
-                f"        var pasted = doc.activeLayer;",
-                f"        var bnd = pasted.bounds;",
-                f"        pasted.translate({layer['rect'][1]} - bnd[0], {layer['rect'][0]} - bnd[1]);",
-                f"        {safe_name}Layer.remove();",
+                f"    var {safe_name}OldLayer = findLayerByName(doc, '{layer_name}');",
+                f"    if ({safe_name}OldLayer) {{",
+                f"        doc.activeLayer = {safe_name}OldLayer;",
+                f"        var {safe_name}PlaceDesc = new ActionDescriptor();",
+                f"        {safe_name}PlaceDesc.putPath(charIDToTypeID('null'), {safe_name}File);",
+                f"        {safe_name}PlaceDesc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsl'));",
+                f"        var {safe_name}Pos = new ActionDescriptor();",
+                f"        {safe_name}Pos.putUnitDouble(charIDToTypeID('Hrzn'), charIDToTypeID('#Pxl'), {cx});",
+                f"        {safe_name}Pos.putUnitDouble(charIDToTypeID('Vrtc'), charIDToTypeID('#Pxl'), {cy});",
+                f"        {safe_name}PlaceDesc.putObject(charIDToTypeID('Pstn'), charIDToTypeID('Pnt '), {safe_name}Pos);",
+                f"        var {safe_name}SzDesc = new ActionDescriptor();",
+                f"        {safe_name}SzDesc.putUnitDouble(charIDToTypeID('Wdth'), charIDToTypeID('#Pxl'), {lw2});",
+                f"        {safe_name}SzDesc.putUnitDouble(charIDToTypeID('Hght'), charIDToTypeID('#Pxl'), {lh2});",
+                f"        {safe_name}PlaceDesc.putObject(charIDToTypeID('Dmns'), charIDToTypeID('Pnt '), {safe_name}SzDesc);",
+                f"        executeAction(charIDToTypeID('Plc '), {safe_name}PlaceDesc, DialogModes.NO);",
+                f"        var {safe_name}NewLayer = doc.activeLayer;",
+                f"        {safe_name}NewLayer.name = '{layer_name}';",
+                f"        {safe_name}OldLayer.remove();",
                 f"    }}",
                 "",
             ]
+
 
     # 저장
     lines += [
