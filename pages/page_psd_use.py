@@ -95,7 +95,8 @@ def _make_live_preview(prev_bytes: bytes, editable_json: str,
     font = ImageFont.load_default()
 
     def _wrap_text(draw, text, max_width):
-        parts = str(text).replace("\r", "").split()
+        text = str(text).replace("\r", "")
+        parts = text.split()
         if not parts:
             return [""]
         lines, cur = [], parts[0]
@@ -110,37 +111,64 @@ def _make_live_preview(prev_bytes: bytes, editable_json: str,
         lines.append(cur)
         return lines
 
-    # 1) 실제 교체된 내용을 우선 반영
-    for l in editable:
-        layer_input = inputs.get(str(l['idx']), {})
+    def _layer_box(layer):
+        t, le, b, r = layer['rect']
+        x1, y1 = int(le * sx), int(t * sy)
+        x2, y2 = int(r * sx), int(b * sy)
+        return x1, y1, x2, y2
+
+    def _order_no(layer):
+        name = str(layer.get('name', ''))
+        digits = ''.join(ch for ch in name if ch.isdigit())
+        if digits:
+            try:
+                return int(digits)
+            except Exception:
+                pass
+        return 0
+
+    def _label_text(layer):
+        kind = '이미지' if layer['type'] == 'image' else '텍스트'
+        no = _order_no(layer)
+        if no > 0:
+            return f"{kind} {no}"
+        return str(layer.get('name') or kind)
+
+    def _draw_badge(x1, y1, text, fill_rgba, outline_rgba=None, text_fill=(255,255,255)):
+        if not text:
+            return
+        x1 = max(4, x1)
+        y1 = max(4, y1)
+        pad_x, pad_y = 6, 4
+        bbox = drw.textbbox((0, 0), text, font=font)
+        bw = (bbox[2] - bbox[0]) + pad_x * 2
+        bh = (bbox[3] - bbox[1]) + pad_y * 2
+        x2 = min(pW - 4, x1 + bw)
+        y2 = min(pH - 4, y1 + bh)
+        drw.rounded_rectangle([x1, y1, x2, y2], radius=5, fill=fill_rgba, outline=outline_rgba)
+        drw.text((x1 + pad_x, y1 + pad_y - 1), text, fill=text_fill, font=font)
+
+    # 1) 실제 교체된 내용을 먼저 합성
+    for layer in editable:
+        layer_input = inputs.get(str(layer['idx']), {})
         value = layer_input.get('value')
         if not value:
             continue
 
-        t, le, b, r = l['rect']
-        x1, y1 = int(le * sx), int(t * sy)
-        x2, y2 = int(r * sx), int(b * sy)
+        x1, y1, x2, y2 = _layer_box(layer)
         if x2 - x1 < 6 or y2 - y1 < 6:
             continue
 
-        if l['type'] == 'image' and layer_input.get('kind') == 'image_bytes':
+        if layer['type'] == 'image' and layer_input.get('kind') == 'image_bytes':
             try:
                 rep = Image.open(io.BytesIO(base64.b64decode(value))).convert("RGB")
                 fitted = ImageOps.fit(rep, (x2 - x1, y2 - y1), method=Image.LANCZOS)
                 canvas.alpha_composite(fitted.convert("RGBA"), (x1, y1))
-                drw.rectangle([x1, y1, x2, y2], outline=(50, 220, 80, 255), width=4)
-                badge = f"교체됨 · {l.get('name', '이미지')}"
-                badge_x2 = min(x2 - 4, x1 + 170)
-                badge_y2 = min(y2 - 4, y1 + 24)
-                if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
-                    drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(16, 120, 48, 230))
-                    drw.text((x1 + 9, y1 + 9), badge[:20], fill=(255, 255, 255), font=font)
             except Exception:
                 pass
-
-        elif l['type'] == 'text' and layer_input.get('kind') == 'text_value':
+        elif layer['type'] == 'text' and layer_input.get('kind') == 'text_value':
             pad = 6
-            drw.rounded_rectangle([x1, y1, x2, y2], radius=4, fill=(255, 255, 255, 225), outline=(255, 200, 0, 255), width=3)
+            drw.rounded_rectangle([x1, y1, x2, y2], radius=4, fill=(255, 255, 255, 235), outline=(53, 137, 255, 255), width=2)
             text_value = str(value).strip()
             max_w = max(40, (x2 - x1) - pad * 2)
             lines = []
@@ -153,49 +181,57 @@ def _make_live_preview(prev_bytes: bytes, editable_json: str,
             for line in lines:
                 drw.text((x1 + pad, ty), line, fill=(20, 20, 20), font=font)
                 ty += line_h
-            badge = f"교체됨 · {l.get('name', '텍스트')}"
-            badge_x2 = min(x2 - 4, x1 + 170)
-            badge_y2 = min(y2 - 4, y1 + 24)
-            if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
-                drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(130, 98, 18, 235))
-                drw.text((x1 + 9, y1 + 9), badge[:20], fill=(255, 255, 255), font=font)
 
-    # 2) 아직 교체하지 않은 영역 가이드 표시
-    for l in editable:
-        t, le, b, r = l['rect']
-        x1, y1 = int(le * sx), int(t * sy)
-        x2, y2 = int(r * sx), int(b * sy)
+    # 2) 모든 영역을 색상/번호/상태 배지로 시각화
+    for layer in editable:
+        x1, y1, x2, y2 = _layer_box(layer)
         if x2 - x1 < 3 or y2 - y1 < 3:
             continue
 
-        lt = l['type']
-        is_active = (l['idx'] == active_idx)
-        has_value = bool(inputs.get(str(l['idx']), {}).get('value'))
+        lt = layer['type']
+        is_active = (layer['idx'] == active_idx)
+        has_value = bool(inputs.get(str(layer['idx']), {}).get('value'))
+        is_image = (lt == 'image')
+
         if has_value:
-            continue
-
-        if is_active:
-            fill = (255, 200, 0, 85) if lt == 'text' else (100, 160, 255, 85)
-            outline = (255, 200, 0, 255) if lt == 'text' else (100, 160, 255, 255)
-            lw = 5
+            fill = (40, 210, 100, 24) if is_image else (53, 137, 255, 24)
+            outline = (40, 210, 100, 255) if is_image else (53, 137, 255, 255)
+            line_w = 6 if is_active else 4
+            label = f"교체됨 · {_label_text(layer)}"
+            badge_fill = (18, 132, 62, 236) if is_image else (32, 95, 186, 236)
         else:
-            fill = (255, 200, 0, 18) if lt == 'text' else (100, 160, 255, 15)
-            outline = (255, 200, 0, 110) if lt == 'text' else (100, 160, 255, 90)
-            lw = 1
+            fill = (255, 90, 90, 24) if is_active else ((108, 175, 255, 10) if is_image else (255, 199, 0, 10))
+            outline = (255, 72, 72, 255) if is_active else ((108, 175, 255, 115) if is_image else (255, 199, 0, 115))
+            line_w = 7 if is_active else 2
+            label = f"선택중 · {_label_text(layer)}" if is_active else _label_text(layer)
+            badge_fill = (190, 36, 36, 238) if is_active else ((32, 46, 84, 215) if is_image else (110, 90, 24, 220))
 
-        drw.rectangle([x1, y1, x2, y2], fill=fill, outline=outline, width=lw)
+        drw.rectangle([x1, y1, x2, y2], fill=fill, outline=outline, width=line_w)
+
         if is_active:
-            label = f"선택중 · {l.get('name', '')}"
-            badge_x2 = min(x2 - 4, x1 + 170)
-            badge_y2 = min(y2 - 4, y1 + 24)
-            if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
-                drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(0, 0, 0, 215))
-                drw.text((x1 + 9, y1 + 9), label[:20], fill=(255, 255, 255), font=font)
+            c = (255, 72, 72, 255)
+            seg = max(16, min(42, max(12, (x2 - x1) // 5), max(12, (y2 - y1) // 5)))
+            drw.line([x1, y1, x1 + seg, y1], fill=c, width=4)
+            drw.line([x1, y1, x1, y1 + seg], fill=c, width=4)
+            drw.line([x2, y1, x2 - seg, y1], fill=c, width=4)
+            drw.line([x2, y1, x2, y1 + seg], fill=c, width=4)
+            drw.line([x1, y2, x1 + seg, y2], fill=c, width=4)
+            drw.line([x1, y2, x1, y2 - seg], fill=c, width=4)
+            drw.line([x2, y2, x2 - seg, y2], fill=c, width=4)
+            drw.line([x2, y2, x2, y2 - seg], fill=c, width=4)
+
+        badge_y = y1 + 6
+        if is_active and has_value:
+            _draw_badge(x1 + 6, badge_y, f"방금 교체 · {_label_text(layer)}", (200, 40, 40, 242))
+            _draw_badge(x1 + 6, badge_y + 24, "미리보기 반영됨", badge_fill)
+        else:
+            _draw_badge(x1 + 6, badge_y, label, badge_fill)
 
     merged = Image.alpha_composite(canvas, ov).convert("RGB")
     buf = io.BytesIO()
-    merged.save(buf, "JPEG", quality=87)
+    merged.save(buf, "JPEG", quality=90)
     return base64.b64encode(buf.getvalue()).decode()
+
 
 def render():
     st.markdown('<div class="section-title">① 템플릿 불러오기</div>', unsafe_allow_html=True)
@@ -452,7 +488,7 @@ def render():
             'padding:6px 10px;background:rgba(255,255,255,0.04);'
             'border-radius:6px;margin-bottom:8px">📄 PSD 미리보기</div>',
             unsafe_allow_html=True)
-        st.caption("실시간 교체 미리보기 · 교체된 영역은 즉시 반영되고 배지/테두리로 강조됩니다")
+        st.caption("실시간 교체 미리보기 · 교체 위치는 색상 박스와 번호 배지로 즉시 표시됩니다")
 
         if st.session_state.pu_prev:
             editable_json = json.dumps([
