@@ -8,6 +8,14 @@ psd-tools 없이 순수 Python으로 구현.
 import struct, io, base64
 from PIL import Image
 
+ADJUSTMENT_LAYER_KEYS = {
+    b'SoCo', b'GdFl', b'PtFl',
+    b'brit', b'levl', b'curv', b'hue2', b'hue ', b'blnc',
+    b'blwh', b'vibA', b'expA', b'grdm', b'phfl', b'nvrt',
+    b'thrs', b'selc', b'clrL', b'clrB', b'post', b'mixr',
+    b'ChnM', b'CgEd', b'filterFX'
+}
+
 
 # ─────────────────────────────────────────────
 # 내부 헬퍼
@@ -212,14 +220,19 @@ def parse_psd(psd_bytes: bytes) -> dict:
         tysh_offset = None
         unicode_name = None
         text_content = ''
+        extra_keys = []
+        is_adjustment = False
 
         extra_end = extra_start + extra_len
         while pos < extra_end - 7:
             if data[pos:pos+4] not in (b'8BIM', b'8B64'): break
             pos += 4
             key = data[pos:pos+4]; pos += 4
+            extra_keys.append(key.decode('latin-1', 'replace'))
             add_len = struct.unpack('>I', data[pos:pos+4])[0]; pos += 4
 
+            if key in ADJUSTMENT_LAYER_KEYS:
+                is_adjustment = True
             if key == b'TySh':
                 layer_type  = 'text'
                 tysh_offset = pos
@@ -237,6 +250,9 @@ def parse_psd(psd_bytes: bytes) -> dict:
         pos = extra_end
 
         name = unicode_name or layer_name
+        if layer_type == 'pixel' and is_adjustment:
+            layer_type = 'adjustment'
+
         layers.append({
             'idx': li, 'name': name, 'type': layer_type,
             'rect': (top, left, bottom, right),
@@ -248,6 +264,8 @@ def parse_psd(psd_bytes: bytes) -> dict:
             'num_channels': num_ch,
             'tysh_offset': tysh_offset,
             'pixel_data_offset': None,  # 아래에서 채움
+            'extra_keys': extra_keys,
+            'is_adjustment': is_adjustment,
         })
 
     # 픽셀 데이터 오프셋 계산 (레코드 끝 = 픽셀 데이터 시작)

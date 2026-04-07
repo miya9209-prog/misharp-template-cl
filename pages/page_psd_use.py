@@ -15,9 +15,46 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.template_manager import (
     load_all, load_one, get_thumb_b64, load_psd_info, get_psd_bytes
 )
-from utils.psd_parser import psd_to_preview_jpg
+from utils.psd_parser import psd_to_preview_jpg, get_layer_thumbnail
 from utils.psd_jsx_builder import build_psd_edit_jsx
 
+
+
+
+def _sort_layers_by_visual_position(layers):
+    return sorted(layers, key=lambda l: (l['rect'][0], l['rect'][1], l['idx']))
+
+
+def _is_visual_image_layer(layer, canvas_w, canvas_h):
+    if layer.get('type') != 'pixel':
+        return False
+    if layer.get('is_adjustment'):
+        return False
+    if not layer.get('visible', True):
+        return False
+    if layer.get('w', 0) <= 30 or layer.get('h', 0) <= 10:
+        return False
+    return True
+
+
+def _image_display_label(layer, order_no, canvas_w, canvas_h):
+    w = layer.get('w', 0)
+    h = layer.get('h', 0)
+    left = layer.get('rect', [0, 0, 0, 0])[1]
+    top = layer.get('rect', [0, 0, 0, 0])[0]
+    full_bleed = (w >= canvas_w * 0.9 and h >= canvas_h * 0.9 and left <= canvas_w * 0.05 and top <= canvas_h * 0.05)
+    if full_bleed:
+        return f"이미지 {order_no} · 전체 배경이미지"
+    if w >= canvas_w * 0.9:
+        return f"이미지 {order_no} · 배경이미지"
+    return f"이미지 {order_no}"
+
+
+def _text_display_label(layer, order_no):
+    preview = (layer.get('text') or '').split('\n')[0].strip()
+    if preview:
+        return f"텍스트 {order_no} · {preview[:24]}"
+    return f"텍스트 {order_no}"
 
 # ── 템플릿 삭제
 def _delete_template(tid):
@@ -35,13 +72,23 @@ def _delete_template(tid):
 
 # ── 레이어 썸네일 추출 (정사각형 cover)
 @st.cache_data(show_spinner=False)
-def _layer_thumb(psd_bytes: bytes, rect: tuple, size: int = 56) -> str | None:
+def _layer_thumb(psd_json: str, layer_idx: int, rect: tuple, size: int = 56) -> str | None:
     try:
+        psd_info = json.loads(psd_json)
+        direct = get_layer_thumbnail(psd_info, layer_idx, max_size=max(size * 2, 120))
+        if direct:
+            return base64.b64encode(direct).decode()
+
+        psd_bytes = psd_info.get('raw')
+        if not psd_bytes:
+            return None
+        if isinstance(psd_bytes, str):
+            psd_bytes = base64.b64decode(psd_bytes)
         prev = psd_to_preview_jpg(psd_bytes, max_width=900)
         full = Image.open(io.BytesIO(prev)).convert("RGB")
         pW, pH = full.size
-        W_orig = struct.unpack('>I', psd_bytes[18:22])[0]
-        H_orig = struct.unpack('>I', psd_bytes[14:18])[0]
+        W_orig = psd_info['width']
+        H_orig = psd_info['height']
         sx, sy = pW / W_orig, pH / H_orig
 
         t, le, b, r = rect
@@ -222,12 +269,14 @@ def render():
     layers = info['layers']
     W, H   = info['width'], info['height']
     editable_idxs = set(int(k) for k,v in info.get('editable_layers',{}).items() if v)
-    editable = sorted(
-        [l for l in layers if l['idx'] in editable_idxs and l['w']>0 and l['h']>0],
-        key=lambda l: l['rect'][0]
+    editable = _sort_layers_by_visual_position(
+        [l for l in layers if l['idx'] in editable_idxs and l['w']>0 and l['h']>0]
     )
-    img_lays = [l for l in editable if l['type']=='pixel']
-    txt_lays = [l for l in editable if l['type']=='text']
+    img_lays = _sort_layers_by_visual_position([l for l in editable if _is_visual_image_layer(l, W, H)])
+    txt_lays = _sort_layers_by_visual_position([l for l in editable if l['type']=='text'])
+    psd_info_for_thumb = dict(info)
+    psd_info_for_thumb['raw'] = base64.b64encode(psd_bytes).decode()
+    psd_json_for_thumb = json.dumps(psd_info_for_thumb)
 
     # 미리보기 로드
     if st.session_state.pu_prev is None:
@@ -264,15 +313,14 @@ def render():
             f'border-radius:6px;margin-bottom:8px">🖼️ 이미지 교체 {id_}/{len(img_lays)}</div>',
             unsafe_allow_html=True)
 
-        for l in img_lays:
+        for order_no, l in enumerate(img_lays, start=1):
             is_a  = (act == l['idx'])
             has_v = bool(inp.get(l['idx'],{}).get('value'))
             s     = "✅" if has_v else ("▶" if is_a else "○")
             bg    = "rgba(100,160,230,0.12)" if is_a else "rgba(255,255,255,0.02)"
             border= "2px solid #78a8f0" if is_a else "1px solid rgba(255,255,255,0.07)"
 
-            # 썸네일 + 레이어 정보 카드
-            thumb = _layer_thumb(psd_bytes, tuple(l['rect']), size=56)
+            thumb = _layer_thumb(psd_json_for_thumb, l['idx'], tuple(l['rect']), size=56)
             th_html = (
                 f'<img src="data:image/jpeg;base64,{thumb}" '
                 f'style="width:56px;height:56px;object-fit:cover;'
@@ -284,14 +332,8 @@ def render():
                 f'display:flex;align-items:center;justify-content:center;font-size:20px">🖼️</div>'
             )
 
-            # 레이어 크기로 유형 추정
             lw, lh = l['w'], l['h']
-            if lw >= W * 0.9:
-                layer_type = "배경/전체"
-            elif lw > 400 or lh > 400:
-                layer_type = "사진"
-            else:
-                layer_type = "요소"
+            display_label = _image_display_label(l, order_no, W, H)
 
             st.markdown(
                 f'<div style="background:{bg};border:{border};border-radius:8px;'
@@ -301,9 +343,9 @@ def render():
                 f'<div style="color:{"#78a8f0" if is_a else "#bbb"};font-size:12px;'
                 f'font-weight:{"700" if is_a else "400"};overflow:hidden;'
                 f'text-overflow:ellipsis;white-space:nowrap">'
-                f'{s} {l["name"][:20]}</div>'
+                f'{s} {display_label}</div>'
                 f'<div style="color:#666;font-size:10px">'
-                f'[{layer_type}] {lw}×{lh}px</div>'
+                f'{lw}×{lh}px</div>'
                 f'</div></div>',
                 unsafe_allow_html=True,
             )
@@ -345,12 +387,12 @@ def render():
             f'border-radius:6px;margin-bottom:8px">✏️ 텍스트 교체 {td}/{len(txt_lays)}</div>',
             unsafe_allow_html=True)
 
-        for l in txt_lays:
+        for order_no, l in enumerate(txt_lays, start=1):
             is_a  = (act == l['idx'])
             has_v = bool(inp.get(l['idx'],{}).get('value'))
             s     = "✅" if has_v else ("▶" if is_a else "○")
             if st.button(
-                f"{s} {l['name'][:28]}",
+                f"{s} {_text_display_label(l, order_no)}",
                 key=f"ptb{l['idx']}",
                 use_container_width=True,
                 type="primary" if is_a else "secondary",
@@ -414,11 +456,17 @@ def render():
         act_layer = next((l for l in layers if l['idx']==act), None)
         if act_layer:
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
+            if act_layer['type'] == 'text':
+                order_no = next((i for i, x in enumerate(txt_lays, start=1) if x['idx'] == act_layer['idx']), None)
+                active_label = _text_display_label(act_layer, order_no or 0)
+            else:
+                order_no = next((i for i, x in enumerate(img_lays, start=1) if x['idx'] == act_layer['idx']), None)
+                active_label = _image_display_label(act_layer, order_no or 0, W, H)
             st.markdown(
                 f'<div style="color:{t_col};font-weight:700;margin-top:6px;'
                 f'padding:6px;background:rgba(255,255,255,0.04);'
                 f'border-radius:6px;text-align:center;font-size:12px">'
-                f'★ 선택: {act_layer["name"]}</div>',
+                f'★ 선택: {active_label}</div>',
                 unsafe_allow_html=True)
 
     st.divider()

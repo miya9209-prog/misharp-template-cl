@@ -10,9 +10,46 @@ import io, sys, os, base64
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.psd_parser import parse_psd, psd_to_preview_jpg
+from utils.psd_parser import parse_psd, psd_to_preview_jpg, get_layer_thumbnail
 from utils.template_manager import save_psd_template, load_all
 
+
+
+
+def _is_visual_image_layer(layer, canvas_w, canvas_h):
+    if layer.get("type") != "pixel":
+        return False
+    if layer.get("is_adjustment"):
+        return False
+    if not layer.get("visible", True):
+        return False
+    if layer.get("w", 0) <= 30 or layer.get("h", 0) <= 10:
+        return False
+    return True
+
+
+def _sort_layers_by_visual_position(layers):
+    return sorted(layers, key=lambda l: (l['rect'][0], l['rect'][1], l['idx']))
+
+
+def _image_display_label(layer, order_no, canvas_w, canvas_h):
+    w = layer.get('w', 0)
+    h = layer.get('h', 0)
+    left = layer.get('rect', [0,0,0,0])[1]
+    top = layer.get('rect', [0,0,0,0])[0]
+    full_bleed = (w >= canvas_w * 0.9 and h >= canvas_h * 0.9 and left <= canvas_w * 0.05 and top <= canvas_h * 0.05)
+    if full_bleed:
+        return f"이미지 {order_no} · 전체 배경이미지"
+    if w >= canvas_w * 0.9:
+        return f"이미지 {order_no} · 배경이미지"
+    return f"이미지 {order_no}"
+
+
+def _text_display_label(layer, order_no):
+    preview = (layer.get('text') or '').split('\n')[0].strip()
+    if preview:
+        return f"텍스트 {order_no} · {preview[:24]}"
+    return f"텍스트 {order_no}"
 
 def _draw_overlay(prev_bytes, editable_layers, eflags, W_orig, H_orig):
     """체크된 레이어만 강조 표시"""
@@ -68,7 +105,7 @@ def render():
                 st.session_state.pc_fname    = uploaded.name
                 st.session_state.pc_editable = {}
                 n_t = sum(1 for l in info['layers'] if l['type'] == 'text' and l['w'] > 0)
-                n_p = sum(1 for l in info['layers'] if l['type'] == 'pixel' and l['w'] > 80)
+                n_p = sum(1 for l in info['layers'] if _is_visual_image_layer(l, info['width'], info['height']))
                 st.success(f"✅ {info['width']}×{info['height']}px | 텍스트 {n_t}개 · 이미지 {n_p}개 레이어 감지")
             except Exception as e:
                 st.error(f"PSD 파싱 오류: {e}")
@@ -84,12 +121,12 @@ def render():
     eflags  = st.session_state.pc_editable
 
     editable_layers = [l for l in layers
-                       if l['type'] in ('text', 'pixel')
-                       and l['w'] > 30 and l['h'] > 10
-                       and l['idx'] != 0]
-    txt_layers = [l for l in editable_layers if l['type'] == 'text']
-    pix_layers = [l for l in editable_layers
-                  if l['type'] == 'pixel' and l['w'] > 80 and l['h'] > 80]
+                       if l['idx'] != 0 and (
+                           (l['type'] == 'text' and l['w'] > 30 and l['h'] > 10)
+                           or _is_visual_image_layer(l, W, H)
+                       )]
+    txt_layers = _sort_layers_by_visual_position([l for l in editable_layers if l['type'] == 'text'])
+    pix_layers = _sort_layers_by_visual_position([l for l in editable_layers if _is_visual_image_layer(l, W, H)])
 
     st.divider()
     st.markdown("**STEP 2 · 교체 대상 레이어 지정**")
@@ -108,11 +145,11 @@ def render():
             f'✏️ 텍스트 레이어 ({checked_t}/{len(txt_layers)})</div>',
             unsafe_allow_html=True,
         )
-        for l in txt_layers:
+        for order_no, l in enumerate(txt_layers, start=1):
             checked = eflags.get(l['idx'], True)
             orig    = l['text'].split('\n')[0][:30] if l['text'] else ''
             new_ck  = st.checkbox(
-                f"{l['name'][:28]}",
+                _text_display_label(l, order_no),
                 value=checked,
                 key=f"ck_t_{l['idx']}",
             )
@@ -130,13 +167,16 @@ def render():
             f'🖼️ 이미지 레이어 ({checked_p}/{len(pix_layers)})</div>',
             unsafe_allow_html=True,
         )
-        for l in pix_layers:
+        for order_no, l in enumerate(pix_layers, start=1):
             checked = eflags.get(l['idx'], True)
             new_ck  = st.checkbox(
-                f"{l['name'][:26]}",
+                _image_display_label(l, order_no, W, H),
                 value=checked,
                 key=f"ck_p_{l['idx']}",
             )
+            thumb = get_layer_thumbnail(info, l['idx'], max_size=120)
+            if thumb:
+                st.image(thumb, width=70)
             st.caption(f"{l['w']}×{l['h']}px")
             eflags[l['idx']] = new_ck
 
