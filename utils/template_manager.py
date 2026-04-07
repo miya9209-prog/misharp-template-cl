@@ -13,6 +13,9 @@ from pathlib import Path
 from datetime import datetime
 from PIL import Image
 
+THUMB_VERSION = 2
+THUMB_RENDER_SIZE = (240, 4096)
+
 TEMPLATE_DIR = Path("templates")
 META_FILE = TEMPLATE_DIR / "_meta.json"
 
@@ -48,6 +51,51 @@ def _save_meta(meta: dict):
     META_FILE.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _build_full_thumb_bytes(img: Image.Image) -> bytes:
+    """전체 이미지 비율을 유지한 세로형 썸네일 JPEG 생성."""
+    thumb = img.convert("RGB").copy()
+    thumb.thumbnail(THUMB_RENDER_SIZE, Image.LANCZOS)
+    buf = io.BytesIO()
+    thumb.save(buf, "JPEG", quality=84)
+    return buf.getvalue()
+
+
+def _write_full_thumb_from_image(img: Image.Image, out_path: Path):
+    out_path.write_bytes(_build_full_thumb_bytes(img))
+
+
+def _refresh_thumb_for_template(tid: str, meta: dict) -> bool:
+    """구버전 잘린 썸네일을 전체 이미지형 썸네일로 1회 갱신."""
+    try:
+        item = meta.get(tid)
+        if not isinstance(item, dict):
+            return False
+        tdir = Path(item.get("path", TEMPLATE_DIR / tid))
+        thumb_path = tdir / "thumb.jpg"
+        if item.get("thumb_version") == THUMB_VERSION and thumb_path.exists():
+            return False
+
+        if item.get("template_type") == "psd":
+            from utils.psd_parser import psd_to_preview_jpg
+            psd_path = tdir / "source.psd"
+            if not psd_path.exists():
+                return False
+            prev = psd_to_preview_jpg(psd_path.read_bytes(), max_width=900)
+            img = Image.open(io.BytesIO(prev)).convert("RGB")
+        else:
+            src_path = tdir / "source.jpg"
+            if not src_path.exists():
+                return False
+            img = Image.open(src_path).convert("RGB")
+
+        _write_full_thumb_from_image(img, thumb_path)
+        item["thumb_version"] = THUMB_VERSION
+        _save_meta(meta)
+        return True
+    except Exception:
+        return False
+
+
 # ──────────────────────────────────────────────────────────
 # 템플릿 저장
 # ──────────────────────────────────────────────────────────
@@ -68,13 +116,10 @@ def save_template(
     # 원본 이미지 저장
     (tdir / "source.jpg").write_bytes(source_bytes)
 
-    # 썸네일 (상단 800px 기준)
+    # 썸네일 (전체 이미지 비율 유지)
     img = Image.open(io.BytesIO(source_bytes)).convert("RGB")
     W, H = img.size
-    thumb_h = min(H, int(W * 1.5))
-    thumb = img.crop((0, 0, W, thumb_h)).copy()
-    thumb.thumbnail((360, 540), Image.LANCZOS)
-    thumb.save(tdir / "thumb.jpg", "JPEG", quality=82)
+    _write_full_thumb_from_image(img, tdir / "thumb.jpg")
 
     meta = load_all()
     meta[tid] = {
@@ -86,6 +131,7 @@ def save_template(
         "canvas_size": [W, H],
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "path": str(tdir),
+        "thumb_version": THUMB_VERSION,
     }
     _save_meta(meta)
     return tid
@@ -114,9 +160,11 @@ def get_source_bytes(tid: str) -> bytes | None:
 
 
 def get_thumb_b64(tid: str) -> str | None:
-    m = load_one(tid)
+    meta = load_all()
+    m = meta.get(tid)
     if not m:
         return None
+    _refresh_thumb_for_template(tid, meta)
     p = Path(m["path"]) / "thumb.jpg"
     if not p.exists():
         return None
@@ -160,26 +208,12 @@ def save_psd_template(
         json.dumps(info_save, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # 병합 미리보기 썸네일
+    # 병합 미리보기 썸네일 (전체 이미지 비율 유지)
     try:
         from utils.psd_parser import psd_to_preview_jpg
-        from PIL import Image as _PILImg
-        import io as _thumbio
-        prev = psd_to_preview_jpg(psd_bytes, max_width=360)
-        _img = _PILImg.open(_thumbio.BytesIO(prev)).convert("RGB")
-        _W, _H = _img.size
-        # 흰색 상단 스킵 → 실제 콘텐츠부터 썸네일 저장
-        _cy = 0
-        for _y in range(0, _H, 5):
-            _row = [_img.getpixel((_x, _y)) for _x in range(0, _W, 15)]
-            _avg = sum(sum(_p[:3]) for _p in _row) / len(_row) / 3
-            if _avg < 225:
-                _cy = max(0, _y - 5)
-                break
-        _crop = _img.crop((0, _cy, _W, min(_H, _cy + 540)))
-        _buf  = _thumbio.BytesIO()
-        _crop.save(_buf, "JPEG", quality=82)
-        (tdir / "thumb.jpg").write_bytes(_buf.getvalue())
+        prev = psd_to_preview_jpg(psd_bytes, max_width=900)
+        _img = Image.open(io.BytesIO(prev)).convert("RGB")
+        _write_full_thumb_from_image(_img, tdir / "thumb.jpg")
     except Exception:
         pass
 
@@ -191,6 +225,7 @@ def save_psd_template(
         "num_layers": psd_info["num_layers"],
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "path": str(tdir),
+        "thumb_version": THUMB_VERSION,
     }
     _save_meta(meta)
     return tid

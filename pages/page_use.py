@@ -3,7 +3,7 @@ import io, sys, os, base64
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.template_manager import load_all, load_one, get_source_bytes, get_thumb_b64
+from utils.template_manager import load_all, load_one, get_source_bytes, get_thumb_b64, delete_template
 from utils.composer import compose_preview, build_output_zip
 
 
@@ -68,7 +68,7 @@ def make_scrollable_viewer(img_bytes: bytes, highlight_zone: dict = None, all_zo
 
 def render():
     for _k, _v in [("u_selected",None), ("u_inputs",{}),
-                   ("u_preview",None), ("u_active_zone",None)]:
+                   ("u_preview",None), ("u_active_zone",None), ("u_del_confirm",None)]:
         if _k not in st.session_state:
             st.session_state[_k] = _v
     st.markdown('<div class="section-title">② 템플릿 활용</div>', unsafe_allow_html=True)
@@ -79,7 +79,7 @@ def render():
         st.info("저장된 템플릿이 없습니다. ① 템플릿 생성 탭에서 먼저 만들어보세요.")
         return
 
-    for k, v in [("u_selected",None),("u_inputs",{}),("u_preview",None),("u_active_zone",None)]:
+    for k, v in [("u_selected",None),("u_inputs",{}),("u_preview",None),("u_active_zone",None),("u_del_confirm",None)]:
         if k not in st.session_state: st.session_state[k] = v
 
     # ── 템플릿 선택
@@ -90,26 +90,50 @@ def render():
             cols = st.columns(4, gap="medium")
             for ci, (tid, meta) in enumerate(tpl_list[row_start:row_start+4]):
                 with cols[ci]:
-                    # 이름 + 버튼 상단
                     st.markdown(f"**{meta['name']}**")
                     iz = sum(1 for z in meta.get("zones",[]) if z.get("type")=="image")
                     tz = sum(1 for z in meta.get("zones",[]) if z.get("type")=="text")
                     w, h = meta.get("canvas_size",[0,0])
                     st.caption(f"🖼️{iz} ✏️{tz} · {w}×{h}px · {meta['created_at'][:10]}")
-                    if meta.get("description"): st.caption(meta["description"])
-                    if st.button("사용 →", key=f"sel_{tid}", use_container_width=True, type="primary"):
-                        st.session_state.u_selected    = tid
-                        st.session_state.u_inputs      = {}
-                        st.session_state.u_preview     = None
-                        st.session_state.u_active_zone = None
-                        st.rerun()
-                    # 썸네일 하단 (작게)
-                    b64 = get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(
-                            f'<img src="data:image/jpeg;base64,{b64}"                             style="width:100%;max-height:150px;object-fit:cover;object-position:top;                            border-radius:6px;border:1px solid rgba(255,255,255,0.08);margin-top:4px">',
-                            unsafe_allow_html=True,
-                        )
+                    if meta.get("description"):
+                        st.caption(meta["description"])
+
+                    _sp1, center, _sp2 = st.columns([1, 1.2, 1], gap="small")
+                    with center:
+                        b1, b2 = st.columns(2, gap="small")
+                        with b1:
+                            if st.button("사용", key=f"sel_{tid}", use_container_width=True, type="primary"):
+                                st.session_state.u_selected    = tid
+                                st.session_state.u_inputs      = {}
+                                st.session_state.u_preview     = None
+                                st.session_state.u_active_zone = None
+                                st.rerun()
+                        with b2:
+                            if st.session_state.u_del_confirm == tid:
+                                if st.button("취소", key=f"u_cnc_{tid}", use_container_width=True):
+                                    st.session_state.u_del_confirm = None
+                                    st.rerun()
+                            else:
+                                if st.button("🗑️", key=f"u_del_{tid}", use_container_width=True, help="삭제"):
+                                    st.session_state.u_del_confirm = tid
+                                    st.rerun()
+
+                        if st.session_state.u_del_confirm == tid:
+                            if st.button("삭제", key=f"u_cfm_{tid}", use_container_width=True):
+                                delete_template(tid)
+                                st.session_state.u_del_confirm = None
+                                if st.session_state.u_selected == tid:
+                                    st.session_state.u_selected = None
+                                st.rerun()
+
+                        b64 = get_thumb_b64(tid)
+                        if b64:
+                            st.markdown(
+                                f'<div style="width:2cm;margin:6px auto 0 auto;overflow:hidden;'
+                                f'border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:#111">'
+                                f'<img src="data:image/jpeg;base64,{b64}" style="width:2cm;height:auto;display:block"></div>',
+                                unsafe_allow_html=True,
+                            )
         return
 
     # ── 작업 화면

@@ -152,8 +152,7 @@ def render():
         st.markdown("### PSD 템플릿 선택")
         tpl_list = list(all_tpl.items())
 
-        # 6열 레이아웃: 각 카드 가로 약 2cm(80px)
-        # 썸네일은 가로 전체, 세로 이미지 전체 비율
+        # 6열 레이아웃 + 2cm 세로형 썸네일
         COLS = 6
         for row in range(0, len(tpl_list), COLS):
             cols = st.columns(COLS, gap="small")
@@ -162,51 +161,51 @@ def render():
                     name = meta.get('name','')
                     w, h = meta.get("canvas_size",[0,0])
 
-                    # 이름 (작게)
                     st.markdown(
                         f'<div style="font-size:11px;font-weight:700;color:#ddd;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
                         f'margin-bottom:3px">{name}</div>',
                         unsafe_allow_html=True)
+                    st.caption(f"{w}×{h}px")
 
-                    # 썸네일 (가로 전체, 세로 전체 이미지)
-                    b64 = get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(
-                            f'<div style="width:100%;border-radius:4px;overflow:hidden;'
-                            f'border:1px solid rgba(255,255,255,0.12);margin-bottom:4px">'
-                            f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:100%;display:block;"></div>',
-                            unsafe_allow_html=True)
+                    _sp1, center, _sp2 = st.columns([1, 1.2, 1], gap="small")
+                    with center:
+                        b1, b2 = st.columns(2, gap="small")
+                        with b1:
+                            if st.button("사용", key=f"tsel_{tid}",
+                                         use_container_width=True, type="primary"):
+                                st.session_state.pu_sel  = tid
+                                st.session_state.pu_inp  = {}
+                                st.session_state.pu_act  = None
+                                st.session_state.pu_prev = None
+                                st.rerun()
+                        with b2:
+                            if st.session_state.pu_del_confirm == tid:
+                                if st.button("취소", key=f"del_cnc_{tid}",
+                                             use_container_width=True):
+                                    st.session_state.pu_del_confirm = None
+                                    st.rerun()
+                            else:
+                                if st.button("🗑️", key=f"del_{tid}",
+                                             use_container_width=True, help="삭제"):
+                                    st.session_state.pu_del_confirm = tid
+                                    st.rerun()
 
-                    # 사용 버튼 (작게)
-                    if st.button("사용", key=f"tsel_{tid}",
-                                 use_container_width=True, type="primary"):
-                        st.session_state.pu_sel  = tid
-                        st.session_state.pu_inp  = {}
-                        st.session_state.pu_act  = None
-                        st.session_state.pu_prev = None
-                        st.rerun()
-
-                    # 삭제 버튼
-                    if st.session_state.pu_del_confirm == tid:
-                        _dc1, _dc2 = st.columns(2)
-                        with _dc1:
+                        if st.session_state.pu_del_confirm == tid:
                             if st.button("삭제", key=f"del_cfm_{tid}",
                                          type="primary", use_container_width=True):
                                 _delete_template(tid)
                                 st.session_state.pu_del_confirm = None
                                 st.rerun()
-                        with _dc2:
-                            if st.button("취소", key=f"del_cnc_{tid}",
-                                         use_container_width=True):
-                                st.session_state.pu_del_confirm = None
-                                st.rerun()
-                    else:
-                        if st.button("🗑️", key=f"del_{tid}",
-                                     use_container_width=True, help="삭제"):
-                            st.session_state.pu_del_confirm = tid
-                            st.rerun()
+
+                        b64 = get_thumb_b64(tid)
+                        if b64:
+                            st.markdown(
+                                f'<div style="width:2cm;margin:6px auto 0 auto;border-radius:4px;overflow:hidden;'
+                                f'border:1px solid rgba(255,255,255,0.12);background:#111">'
+                                f'<img src="data:image/jpeg;base64,{b64}" '
+                                f'style="width:2cm;height:auto;display:block;"></div>',
+                                unsafe_allow_html=True)
         return
 
     # ════════════════════════════════════════

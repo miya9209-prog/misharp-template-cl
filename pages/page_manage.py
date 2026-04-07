@@ -134,38 +134,34 @@ def render():
                 except Exception as e:
                     st.caption(f"표시 오류: {e}")
 
-                # 삭제 버튼
-                if st.session_state.del_confirm == tid:
-                    st.warning("정말 삭제?")
-                    d1, d2 = st.columns(2)
-                    with d1:
+                # 썸네일 상단 버튼 + 썸네일 2cm 고정
+                btn_left, btn_mid, btn_right = st.columns([1, 1.2, 1], gap="small")
+                with btn_mid:
+                    if st.session_state.del_confirm == tid:
                         if st.button("삭제", key=f"cfm_{tid}", type="primary", use_container_width=True):
                             _delete_template(tid)
                             st.session_state.del_confirm = None
                             st.rerun()
-                    with d2:
                         if st.button("취소", key=f"cnc_{tid}", use_container_width=True):
                             st.session_state.del_confirm = None
                             st.rerun()
-                else:
-                    if st.button("🗑️ 삭제", key=f"del_{tid}", use_container_width=True):
-                        st.session_state.del_confirm = tid
-                        st.rerun()
+                    else:
+                        if st.button("🗑️", key=f"del_{tid}", use_container_width=True, help="삭제"): 
+                            st.session_state.del_confirm = tid
+                            st.rerun()
 
-                # 썸네일
-                try:
-                    b64 = _get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(
-                            f'<div style="width:100%;height:110px;background:#111;'
-                            f'border-radius:6px;margin-top:6px;overflow:hidden;'
-                            f'border:1px solid rgba(255,255,255,0.08)">'
-                            f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:100%;height:110px;object-fit:contain;'
-                            f'object-position:top"></div>',
-                            unsafe_allow_html=True,
-                        )
-                except Exception:
-                    pass
+                    try:
+                        b64 = _get_thumb_b64(tid)
+                        if b64:
+                            st.markdown(
+                                f'<div style="width:2cm;margin:6px auto 0 auto;background:#111;'
+                                f'border-radius:6px;overflow:hidden;'
+                                f'border:1px solid rgba(255,255,255,0.08)">'
+                                f'<img src="data:image/jpeg;base64,{b64}" '
+                                f'style="width:2cm;height:auto;display:block"></div>',
+                                unsafe_allow_html=True,
+                            )
+                    except Exception:
+                        pass
 
         st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
