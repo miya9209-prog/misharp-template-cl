@@ -9,7 +9,7 @@ import streamlit as st
 import io, sys, os, base64, zipfile, json, struct, shutil
 from datetime import datetime
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.template_manager import (
@@ -79,63 +79,123 @@ def _layer_thumb(psd_json: str, layer_idx: int, rect: tuple, size: int = 56) -> 
         return None
 
 
-# ── 오버레이 이미지 생성 (캐시)
+# ── 라이브 미리보기 이미지 생성 (캐시)
 @st.cache_data(show_spinner=False)
-def _make_overlay(prev_bytes: bytes, editable_json: str,
-                  active_idx, inp_json: str, W_orig: int, H_orig: int) -> str:
+def _make_live_preview(prev_bytes: bytes, editable_json: str,
+                       active_idx, inp_json: str, W_orig: int, H_orig: int) -> str:
     editable = json.loads(editable_json)
-    inputs   = json.loads(inp_json)
+    inputs = json.loads(inp_json)
 
-    img = Image.open(io.BytesIO(prev_bytes)).convert("RGBA")
-    pW, pH = img.size
+    base = Image.open(io.BytesIO(prev_bytes)).convert("RGBA")
+    pW, pH = base.size
     sx, sy = pW / W_orig, pH / H_orig
-    ov  = Image.new("RGBA", (pW, pH), (0,0,0,0))
+    canvas = base.copy()
+    ov = Image.new("RGBA", (pW, pH), (0, 0, 0, 0))
     drw = ImageDraw.Draw(ov)
+    font = ImageFont.load_default()
 
+    def _wrap_text(draw, text, max_width):
+        parts = str(text).replace("\r", "").split()
+        if not parts:
+            return [""]
+        lines, cur = [], parts[0]
+        for w in parts[1:]:
+            test = cur + " " + w
+            bbox = draw.textbbox((0, 0), test, font=font)
+            if (bbox[2] - bbox[0]) <= max_width:
+                cur = test
+            else:
+                lines.append(cur)
+                cur = w
+        lines.append(cur)
+        return lines
+
+    # 1) 실제 교체된 내용을 우선 반영
+    for l in editable:
+        layer_input = inputs.get(str(l['idx']), {})
+        value = layer_input.get('value')
+        if not value:
+            continue
+
+        t, le, b, r = l['rect']
+        x1, y1 = int(le * sx), int(t * sy)
+        x2, y2 = int(r * sx), int(b * sy)
+        if x2 - x1 < 6 or y2 - y1 < 6:
+            continue
+
+        if l['type'] == 'image' and layer_input.get('kind') == 'image_bytes':
+            try:
+                rep = Image.open(io.BytesIO(base64.b64decode(value))).convert("RGB")
+                fitted = ImageOps.fit(rep, (x2 - x1, y2 - y1), method=Image.LANCZOS)
+                canvas.alpha_composite(fitted.convert("RGBA"), (x1, y1))
+                drw.rectangle([x1, y1, x2, y2], outline=(50, 220, 80, 255), width=4)
+                badge = f"교체됨 · {l.get('name', '이미지')}"
+                badge_x2 = min(x2 - 4, x1 + 170)
+                badge_y2 = min(y2 - 4, y1 + 24)
+                if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
+                    drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(16, 120, 48, 230))
+                    drw.text((x1 + 9, y1 + 9), badge[:20], fill=(255, 255, 255), font=font)
+            except Exception:
+                pass
+
+        elif l['type'] == 'text' and layer_input.get('kind') == 'text_value':
+            pad = 6
+            drw.rounded_rectangle([x1, y1, x2, y2], radius=4, fill=(255, 255, 255, 225), outline=(255, 200, 0, 255), width=3)
+            text_value = str(value).strip()
+            max_w = max(40, (x2 - x1) - pad * 2)
+            lines = []
+            for part in text_value.split("\n"):
+                lines.extend(_wrap_text(drw, part, max_w))
+            line_h = 14
+            max_lines = max(1, ((y2 - y1) - pad * 2) // line_h)
+            lines = lines[:max_lines]
+            ty = y1 + pad
+            for line in lines:
+                drw.text((x1 + pad, ty), line, fill=(20, 20, 20), font=font)
+                ty += line_h
+            badge = f"교체됨 · {l.get('name', '텍스트')}"
+            badge_x2 = min(x2 - 4, x1 + 170)
+            badge_y2 = min(y2 - 4, y1 + 24)
+            if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
+                drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(130, 98, 18, 235))
+                drw.text((x1 + 9, y1 + 9), badge[:20], fill=(255, 255, 255), font=font)
+
+    # 2) 아직 교체하지 않은 영역 가이드 표시
     for l in editable:
         t, le, b, r = l['rect']
-        x1, y1 = int(le*sx), int(t*sy)
-        x2, y2 = int(r*sx),  int(b*sy)
-        if x2-x1 < 3 or y2-y1 < 3:
+        x1, y1 = int(le * sx), int(t * sy)
+        x2, y2 = int(r * sx), int(b * sy)
+        if x2 - x1 < 3 or y2 - y1 < 3:
             continue
-        lt    = l['type']
-        is_a  = (l['idx'] == active_idx)
-        has_v = bool(inputs.get(str(l['idx']), {}).get('has_value'))
 
-        if has_v:
-            fill, outline, lw = (50,220,80,55), (50,220,80,220), 3
-        elif is_a:
-            # 선택 중 - 강하게 강조
-            fill    = (255,200,0,110)  if lt=='text' else (100,160,255,110)
-            outline = (255,200,0,255)  if lt=='text' else (100,160,255,255)
-            lw = 6
+        lt = l['type']
+        is_active = (l['idx'] == active_idx)
+        has_value = bool(inputs.get(str(l['idx']), {}).get('value'))
+        if has_value:
+            continue
+
+        if is_active:
+            fill = (255, 200, 0, 85) if lt == 'text' else (100, 160, 255, 85)
+            outline = (255, 200, 0, 255) if lt == 'text' else (100, 160, 255, 255)
+            lw = 5
         else:
-            fill    = (255,200,0,18)   if lt=='text' else (100,160,255,13)
-            outline = (255,200,0,110)  if lt=='text' else (100,160,255,80)
+            fill = (255, 200, 0, 18) if lt == 'text' else (100, 160, 255, 15)
+            outline = (255, 200, 0, 110) if lt == 'text' else (100, 160, 255, 90)
             lw = 1
 
-        drw.rectangle([x1,y1,x2,y2], fill=fill, outline=outline, width=lw)
+        drw.rectangle([x1, y1, x2, y2], fill=fill, outline=outline, width=lw)
+        if is_active:
+            label = f"선택중 · {l.get('name', '')}"
+            badge_x2 = min(x2 - 4, x1 + 170)
+            badge_y2 = min(y2 - 4, y1 + 24)
+            if badge_x2 > x1 + 20 and badge_y2 > y1 + 10:
+                drw.rounded_rectangle([x1 + 4, y1 + 4, badge_x2, badge_y2], radius=4, fill=(0, 0, 0, 215))
+                drw.text((x1 + 9, y1 + 9), label[:20], fill=(255, 255, 255), font=font)
 
-        if is_a:
-            # 라벨 배경 + 텍스트
-            lh = min(32, y2-y1)
-            drw.rectangle([x1,y1,x2,y1+lh], fill=(0,0,0,210))
-            icon = "✏" if lt=='text' else "🖼"
-            drw.text((x1+6, y1+7),
-                     f"{icon} {l['name'][:28]}",
-                     fill=(255,255,255))
-            # 테두리 깜빡임 효과 대신 두꺼운 외곽선 추가
-            for d in [2, 4]:
-                drw.rectangle([x1-d,y1-d,x2+d,y2+d],
-                              outline=outline[:3]+(120,), width=1)
-        elif has_v:
-            drw.text((x1+4, y1+4), "✓", fill=(50,220,80,230))
-
-    merged = Image.alpha_composite(img, ov).convert("RGB")
+    merged = Image.alpha_composite(canvas, ov).convert("RGB")
     buf = io.BytesIO()
-    merged.save(buf, "JPEG", quality=85)
+    merged.save(buf, "JPEG", quality=87)
     return base64.b64encode(buf.getvalue()).decode()
-
 
 def render():
     st.markdown('<div class="section-title">① 템플릿 불러오기</div>', unsafe_allow_html=True)
@@ -392,7 +452,7 @@ def render():
             'padding:6px 10px;background:rgba(255,255,255,0.04);'
             'border-radius:6px;margin-bottom:8px">📄 PSD 미리보기</div>',
             unsafe_allow_html=True)
-        st.caption("🟡 텍스트  🔵 이미지  🟢 완료  ★ 선택중")
+        st.caption("실시간 교체 미리보기 · 교체된 영역은 즉시 반영되고 배지/테두리로 강조됩니다")
 
         if st.session_state.pu_prev:
             editable_json = json.dumps([
@@ -401,10 +461,13 @@ def render():
                 for l in editable
             ])
             inp_json = json.dumps({
-                str(idx): {'has_value': bool(v.get('value'))}
-                for idx, v in inp.items()
+                str(idx): {
+                    'value': (base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else v.get('value')),
+                    'kind': ('image_bytes' if v.get('type') == 'image' and v.get('value') else 'text_value')
+                }
+                for idx, v in inp.items() if v.get('value')
             })
-            b64 = _make_overlay(
+            b64 = _make_live_preview(
                 st.session_state.pu_prev,
                 editable_json, act, inp_json, W, H,
             )
@@ -462,10 +525,28 @@ def render():
                     safe = meta['name'].replace(' ','_')[:30]
                     now  = datetime.now().strftime('%Y%m%d_%H%M')
                     zbuf = io.BytesIO()
+                    live_preview_bytes = None
+                    if st.session_state.pu_prev:
+                        editable_json = json.dumps([
+                            {'idx':l['idx'],'type':l['type'],'rect':list(l['rect']),
+                             'name':l.get('display_label') or l.get('name',''),'w':l['w'],'h':l['h']}
+                            for l in editable
+                        ])
+                        inp_json = json.dumps({
+                            str(idx): {
+                                'value': (base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else v.get('value')),
+                                'kind': ('image_bytes' if v.get('type') == 'image' and v.get('value') else 'text_value')
+                            }
+                            for idx, v in inp.items() if v.get('value')
+                        })
+                        live_preview_bytes = base64.b64decode(_make_live_preview(
+                            st.session_state.pu_prev, editable_json, act, inp_json, W, H
+                        ))
+
                     with zipfile.ZipFile(zbuf,'w',zipfile.ZIP_DEFLATED) as zf:
                         zf.writestr(f"{safe}_{now}.jsx", jsx.encode('utf-8'))
-                        if st.session_state.pu_prev:
-                            zf.writestr(f"{safe}_{now}_preview.jpg", st.session_state.pu_prev)
+                        if live_preview_bytes:
+                            zf.writestr(f"{safe}_{now}_preview.jpg", live_preview_bytes)
                         zf.writestr("README.txt",
                             (f"미샵 템플릿 OS | {meta['name']} | {now}\n"
                              f"이미지 {len(img_rep)}개 텍스트 {len(txt_rep)}개\n"
