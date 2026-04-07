@@ -98,42 +98,40 @@ def render():
                     if meta.get("description"):
                         st.caption(meta["description"])
 
-                    _sp1, center, _sp2 = st.columns([1, 1.2, 1], gap="small")
-                    with center:
-                        b1, b2 = st.columns(2, gap="small")
-                        with b1:
-                            if st.button("사용", key=f"sel_{tid}", use_container_width=True, type="primary"):
-                                st.session_state.u_selected    = tid
-                                st.session_state.u_inputs      = {}
-                                st.session_state.u_preview     = None
-                                st.session_state.u_active_zone = None
-                                st.rerun()
-                        with b2:
-                            if st.session_state.u_del_confirm == tid:
-                                if st.button("취소", key=f"u_cnc_{tid}", use_container_width=True):
-                                    st.session_state.u_del_confirm = None
-                                    st.rerun()
-                            else:
-                                if st.button("🗑️", key=f"u_del_{tid}", use_container_width=True, help="삭제"):
-                                    st.session_state.u_del_confirm = tid
-                                    st.rerun()
-
+                    b1, b2 = st.columns([2.4, 1], gap="small")
+                    with b1:
+                        if st.button("사용", key=f"sel_{tid}", use_container_width=True, type="primary"):
+                            st.session_state.u_selected    = tid
+                            st.session_state.u_inputs      = {}
+                            st.session_state.u_preview     = None
+                            st.session_state.u_active_zone = None
+                            st.rerun()
+                    with b2:
                         if st.session_state.u_del_confirm == tid:
-                            if st.button("삭제", key=f"u_cfm_{tid}", use_container_width=True):
-                                delete_template(tid)
+                            if st.button("취소", key=f"u_cnc_{tid}", use_container_width=True):
                                 st.session_state.u_del_confirm = None
-                                if st.session_state.u_selected == tid:
-                                    st.session_state.u_selected = None
+                                st.rerun()
+                        else:
+                            if st.button("🗑️", key=f"u_del_{tid}", use_container_width=True, help="삭제"):
+                                st.session_state.u_del_confirm = tid
                                 st.rerun()
 
-                        b64 = get_thumb_b64(tid)
-                        if b64:
-                            st.markdown(
-                                f'<div style="width:2cm;margin:6px auto 0 auto;overflow:hidden;'
-                                f'border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:#111">'
-                                f'<img src="data:image/jpeg;base64,{b64}" style="width:2cm;height:auto;display:block"></div>',
-                                unsafe_allow_html=True,
-                            )
+                    if st.session_state.u_del_confirm == tid:
+                        if st.button("삭제", key=f"u_cfm_{tid}", use_container_width=True):
+                            delete_template(tid)
+                            st.session_state.u_del_confirm = None
+                            if st.session_state.u_selected == tid:
+                                st.session_state.u_selected = None
+                            st.rerun()
+
+                    b64 = get_thumb_b64(tid)
+                    if b64:
+                        st.markdown(
+                            f'<div style="width:2cm;margin:8px auto 0 auto;overflow:hidden;'
+                            f'border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:#111">'
+                            f'<img src="data:image/jpeg;base64,{b64}" style="width:2cm;height:auto;display:block"></div>',
+                            unsafe_allow_html=True,
+                        )
         return
 
     # ── 작업 화면

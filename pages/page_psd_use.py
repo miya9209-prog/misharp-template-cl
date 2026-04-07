@@ -168,44 +168,42 @@ def render():
                         unsafe_allow_html=True)
                     st.caption(f"{w}×{h}px")
 
-                    _sp1, center, _sp2 = st.columns([1, 1.2, 1], gap="small")
-                    with center:
-                        b1, b2 = st.columns(2, gap="small")
-                        with b1:
-                            if st.button("사용", key=f"tsel_{tid}",
-                                         use_container_width=True, type="primary"):
-                                st.session_state.pu_sel  = tid
-                                st.session_state.pu_inp  = {}
-                                st.session_state.pu_act  = None
-                                st.session_state.pu_prev = None
-                                st.rerun()
-                        with b2:
-                            if st.session_state.pu_del_confirm == tid:
-                                if st.button("취소", key=f"del_cnc_{tid}",
-                                             use_container_width=True):
-                                    st.session_state.pu_del_confirm = None
-                                    st.rerun()
-                            else:
-                                if st.button("🗑️", key=f"del_{tid}",
-                                             use_container_width=True, help="삭제"):
-                                    st.session_state.pu_del_confirm = tid
-                                    st.rerun()
-
+                    b1, b2 = st.columns([2.4, 1], gap="small")
+                    with b1:
+                        if st.button("사용", key=f"tsel_{tid}",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.pu_sel  = tid
+                            st.session_state.pu_inp  = {}
+                            st.session_state.pu_act  = None
+                            st.session_state.pu_prev = None
+                            st.rerun()
+                    with b2:
                         if st.session_state.pu_del_confirm == tid:
-                            if st.button("삭제", key=f"del_cfm_{tid}",
-                                         type="primary", use_container_width=True):
-                                _delete_template(tid)
+                            if st.button("취소", key=f"del_cnc_{tid}",
+                                         use_container_width=True):
                                 st.session_state.pu_del_confirm = None
                                 st.rerun()
+                        else:
+                            if st.button("🗑️", key=f"del_{tid}",
+                                         use_container_width=True, help="삭제"):
+                                st.session_state.pu_del_confirm = tid
+                                st.rerun()
 
-                        b64 = get_thumb_b64(tid)
-                        if b64:
-                            st.markdown(
-                                f'<div style="width:2cm;margin:6px auto 0 auto;border-radius:4px;overflow:hidden;'
-                                f'border:1px solid rgba(255,255,255,0.12);background:#111">'
-                                f'<img src="data:image/jpeg;base64,{b64}" '
-                                f'style="width:2cm;height:auto;display:block;"></div>',
-                                unsafe_allow_html=True)
+                    if st.session_state.pu_del_confirm == tid:
+                        if st.button("삭제", key=f"del_cfm_{tid}",
+                                     type="primary", use_container_width=True):
+                            _delete_template(tid)
+                            st.session_state.pu_del_confirm = None
+                            st.rerun()
+
+                    b64 = get_thumb_b64(tid)
+                    if b64:
+                        st.markdown(
+                            f'<div style="width:2cm;margin:8px auto 0 auto;border-radius:4px;overflow:hidden;'
+                            f'border:1px solid rgba(255,255,255,0.12);background:#111">'
+                            f'<img src="data:image/jpeg;base64,{b64}" '
+                            f'style="width:2cm;height:auto;display:block;"></div>',
+                            unsafe_allow_html=True)
         return
 
     # ════════════════════════════════════════
