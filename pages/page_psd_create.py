@@ -10,12 +10,8 @@ import io, sys, os, base64
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.psd_parser import (
-    parse_psd, psd_to_preview_jpg, get_layer_thumbnail,
-    build_editable_layer_sets, sort_layers_by_visual_position,
-)
+from utils.psd_parser import parse_psd, psd_to_preview_jpg
 from utils.template_manager import save_psd_template, load_all
-
 
 
 def _draw_overlay(prev_bytes, editable_layers, eflags, W_orig, H_orig):
@@ -71,9 +67,8 @@ def render():
                 st.session_state.pc_prev     = prev
                 st.session_state.pc_fname    = uploaded.name
                 st.session_state.pc_editable = {}
-                editable_layers, txt_layers0, pix_layers0 = build_editable_layer_sets(info)
-                n_t = len(txt_layers0)
-                n_p = len(pix_layers0)
+                n_t = sum(1 for l in info['layers'] if l['type'] == 'text' and l['w'] > 0)
+                n_p = sum(1 for l in info['layers'] if l['type'] == 'pixel' and l['w'] > 80)
                 st.success(f"✅ {info['width']}×{info['height']}px | 텍스트 {n_t}개 · 이미지 {n_p}개 레이어 감지")
             except Exception as e:
                 st.error(f"PSD 파싱 오류: {e}")
@@ -88,8 +83,13 @@ def render():
     W, H    = info['width'], info['height']
     eflags  = st.session_state.pc_editable
 
-    editable_layers, txt_layers, pix_layers = build_editable_layer_sets(info)
-    editable_layers = [l for l in editable_layers if l['idx'] != 0]
+    editable_layers = [l for l in layers
+                       if l['type'] in ('text', 'pixel')
+                       and l['w'] > 30 and l['h'] > 10
+                       and l['idx'] != 0]
+    txt_layers = [l for l in editable_layers if l['type'] == 'text']
+    pix_layers = [l for l in editable_layers
+                  if l['type'] == 'pixel' and l['w'] > 80 and l['h'] > 80]
 
     st.divider()
     st.markdown("**STEP 2 · 교체 대상 레이어 지정**")
@@ -108,11 +108,11 @@ def render():
             f'✏️ 텍스트 레이어 ({checked_t}/{len(txt_layers)})</div>',
             unsafe_allow_html=True,
         )
-        for order_no, l in enumerate(txt_layers, start=1):
+        for l in txt_layers:
             checked = eflags.get(l['idx'], True)
             orig    = l['text'].split('\n')[0][:30] if l['text'] else ''
             new_ck  = st.checkbox(
-                l.get('display_label') or f'텍스트 {order_no}',
+                f"{l['name'][:28]}",
                 value=checked,
                 key=f"ck_t_{l['idx']}",
             )
@@ -130,16 +130,13 @@ def render():
             f'🖼️ 이미지 레이어 ({checked_p}/{len(pix_layers)})</div>',
             unsafe_allow_html=True,
         )
-        for order_no, l in enumerate(pix_layers, start=1):
+        for l in pix_layers:
             checked = eflags.get(l['idx'], True)
             new_ck  = st.checkbox(
-                l.get('display_label') or f'이미지 {order_no}',
+                f"{l['name'][:26]}",
                 value=checked,
                 key=f"ck_p_{l['idx']}",
             )
-            thumb = get_layer_thumbnail(info, l['idx'], max_size=120)
-            if thumb:
-                st.image(thumb, width=70)
             st.caption(f"{l['w']}×{l['h']}px")
             eflags[l['idx']] = new_ck
 

@@ -23,10 +23,9 @@ def build_psd_edit_jsx(
     """
     원본 PSD를 열어서 레이어를 교체하는 JSX 스크립트 생성.
 
-    사용자가 해야 할 것:
-    1. 원본 PSD 파일을 자신의 PC에 보유
-    2. JSX 스크립트 실행 → 자동으로 원본 PSD 열고 레이어 교체
-    3. 결과를 새 PSD로 저장
+    ZIP 안에 포함된 원본 PSD와 같은 폴더에서 JSX를 실행하면
+    원본 PSD를 자동으로 찾아 열고 레이어를 교체합니다.
+    같은 폴더에 PSD가 없을 때만 수동 선택 창을 띄웁니다.
     """
     layers = psd_info['layers']
     W = psd_info['width']
@@ -76,9 +75,23 @@ def build_psd_edit_jsx(
         "}",
         "",
         "function main() {",
-        "    // 원본 PSD 열기",
-        f"    var psdFile = File.openDialog('원본 PSD 파일을 선택하세요 ({psd_filename})', '*.psd');",
-        "    if (!psdFile) { alert('파일을 선택하지 않았습니다.'); return; }",
+        "    // 원본 PSD 자동 찾기 (JSX와 같은 폴더 우선)",
+        "    var jsxFile = new File($.fileName);",
+        "    var jsxFolder = jsxFile.parent;",
+        f"    var expectedPsd = new File(jsxFolder.fsName + '/{psd_filename}');",
+        "    var psdFile = null;",
+        "    if (expectedPsd.exists) {",
+        "        psdFile = expectedPsd;",
+        "    } else {",
+        "        var psdCandidates = jsxFolder.getFiles('*.psd');",
+        "        if (psdCandidates && psdCandidates.length > 0) {",
+        "            psdFile = psdCandidates[0];",
+        "        }",
+        "    }",
+        "    if (!psdFile) {",
+        f"        psdFile = File.openDialog('원본 PSD 파일을 선택하세요 ({psd_filename})', '*.psd');",
+        "    }",
+        "    if (!psdFile) { alert('원본 PSD 파일을 찾지 못했습니다. ZIP을 그대로 압축 해제한 폴더에서 JSX를 실행해주세요.'); return; }",
         "    var doc = app.open(psdFile);",
         "    app.activeDocument = doc;",
         "",

@@ -9,17 +9,14 @@ import streamlit as st
 import io, sys, os, base64, zipfile, json, struct, shutil
 from datetime import datetime
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageOps, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.template_manager import (
     load_all, load_one, get_thumb_b64, load_psd_info, get_psd_bytes
 )
-from utils.psd_parser import (
-    psd_to_preview_jpg, get_layer_thumbnail, build_editable_layer_sets
-)
+from utils.psd_parser import psd_to_preview_jpg
 from utils.psd_jsx_builder import build_psd_edit_jsx
-
 
 
 # ── 템플릿 삭제
@@ -38,23 +35,13 @@ def _delete_template(tid):
 
 # ── 레이어 썸네일 추출 (정사각형 cover)
 @st.cache_data(show_spinner=False)
-def _layer_thumb(psd_json: str, layer_idx: int, rect: tuple, size: int = 56) -> str | None:
+def _layer_thumb(psd_bytes: bytes, rect: tuple, size: int = 56) -> str | None:
     try:
-        psd_info = json.loads(psd_json)
-        direct = get_layer_thumbnail(psd_info, layer_idx, max_size=max(size * 2, 120))
-        if direct:
-            return base64.b64encode(direct).decode()
-
-        psd_bytes = psd_info.get('raw')
-        if not psd_bytes:
-            return None
-        if isinstance(psd_bytes, str):
-            psd_bytes = base64.b64decode(psd_bytes)
         prev = psd_to_preview_jpg(psd_bytes, max_width=900)
         full = Image.open(io.BytesIO(prev)).convert("RGB")
         pW, pH = full.size
-        W_orig = psd_info['width']
-        H_orig = psd_info['height']
+        W_orig = struct.unpack('>I', psd_bytes[18:22])[0]
+        H_orig = struct.unpack('>I', psd_bytes[14:18])[0]
         sx, sy = pW / W_orig, pH / H_orig
 
         t, le, b, r = rect
@@ -79,158 +66,105 @@ def _layer_thumb(psd_json: str, layer_idx: int, rect: tuple, size: int = 56) -> 
         return None
 
 
-# ── 라이브 미리보기 이미지 생성 (캐시)
+
+
+# ── 미리보기용 텍스트/이미지 합성
 @st.cache_data(show_spinner=False)
-def _make_live_preview(prev_bytes: bytes, editable_json: str,
-                       active_idx, inp_json: str, W_orig: int, H_orig: int) -> str:
+def _fit_cover(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    img = img.convert("RGB")
+    if target_w < 2 or target_h < 2:
+        return img
+    return ImageOps.fit(img, (target_w, target_h), method=Image.LANCZOS, centering=(0.5, 0.5))
+
+
+@st.cache_data(show_spinner=False)
+def _make_live_preview(prev_bytes: bytes, editable_json: str, active_idx, inp_payload_json: str, W_orig: int, H_orig: int, show_guides: bool = True) -> str:
     editable = json.loads(editable_json)
-    inputs = json.loads(inp_json)
+    inputs = json.loads(inp_payload_json)
 
     base = Image.open(io.BytesIO(prev_bytes)).convert("RGBA")
     pW, pH = base.size
     sx, sy = pW / W_orig, pH / H_orig
-    canvas = base.copy()
-    ov = Image.new("RGBA", (pW, pH), (0, 0, 0, 0))
-    drw = ImageDraw.Draw(ov)
-    font = ImageFont.load_default()
 
-    def _wrap_text(draw, text, max_width):
-        text = str(text).replace("\r", "")
-        parts = text.split()
-        if not parts:
-            return [""]
-        lines, cur = [], parts[0]
-        for w in parts[1:]:
-            test = cur + " " + w
-            bbox = draw.textbbox((0, 0), test, font=font)
-            if (bbox[2] - bbox[0]) <= max_width:
-                cur = test
-            else:
-                lines.append(cur)
-                cur = w
-        lines.append(cur)
-        return lines
+    draw_img = ImageDraw.Draw(base)
+    overlay = Image.new("RGBA", (pW, pH), (0, 0, 0, 0))
+    draw_ov = ImageDraw.Draw(overlay)
 
-    def _layer_box(layer):
-        t, le, b, r = layer['rect']
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+
+    def _label(draw, x1, y1, text, fill):
+        if not font:
+            return
+        try:
+            bbox = draw.textbbox((x1, y1), text, font=font)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+        except Exception:
+            tw, th = (len(text) * 6, 11)
+        draw.rectangle([x1, y1, x1 + tw + 8, y1 + th + 6], fill=(0, 0, 0, 190))
+        draw.text((x1 + 4, y1 + 3), text, fill=fill, font=font)
+
+    for l in editable:
+        inp = inputs.get(str(l['idx']), {})
+        t, le, b, r = l['rect']
         x1, y1 = int(le * sx), int(t * sy)
         x2, y2 = int(r * sx), int(b * sy)
-        return x1, y1, x2, y2
+        rw, rh = max(1, x2 - x1), max(1, y2 - y1)
+        if rw < 3 or rh < 3:
+            continue
 
-    def _order_no(layer):
-        name = str(layer.get('name', ''))
-        digits = ''.join(ch for ch in name if ch.isdigit())
-        if digits:
+        has_value = bool(inp.get('has_value'))
+        is_active = (l['idx'] == active_idx)
+
+        if has_value and inp.get('type') == 'image' and inp.get('value_b64'):
             try:
-                return int(digits)
+                rep = Image.open(io.BytesIO(base64.b64decode(inp['value_b64']))).convert('RGB')
+                rep = _fit_cover(rep, rw, rh).convert('RGBA')
+                base.alpha_composite(rep, (x1, y1))
             except Exception:
                 pass
-        return 0
+        elif has_value and inp.get('type') == 'text':
+            txt = (inp.get('value') or '').strip()
+            if txt:
+                draw_img.rounded_rectangle([x1, y1, x2, y2], radius=6, fill=(255, 255, 255, 235))
+                if font:
+                    pad = 6
+                    clipped = txt[:120]
+                    draw_img.text((x1 + pad, y1 + pad), clipped, fill=(20, 20, 20), font=font)
 
-    def _label_text(layer):
-        kind = '이미지' if layer['type'] == 'image' else '텍스트'
-        no = _order_no(layer)
-        if no > 0:
-            return f"{kind} {no}"
-        return str(layer.get('name') or kind)
+        if show_guides:
+            if has_value:
+                color = (50, 220, 80, 255)
+                fill = (50, 220, 80, 35)
+                label = '교체됨'
+            elif is_active:
+                color = (255, 80, 80, 255)
+                fill = (255, 80, 80, 28)
+                label = '선택중'
+            else:
+                color = (100, 160, 255, 170) if l['type'] == 'pixel' else (255, 200, 0, 170)
+                fill = (100, 160, 255, 18) if l['type'] == 'pixel' else (255, 200, 0, 18)
+                label = None
+            draw_ov.rectangle([x1, y1, x2, y2], outline=color, width=3 if (has_value or is_active) else 1, fill=fill)
+            kind = '이미지' if l['type'] == 'pixel' else '텍스트'
+            _label(draw_ov, x1 + 2, max(0, y1 + 2), f"{kind} {l.get('display_order', '')}".strip(), color)
+            if label:
+                _label(draw_ov, x1 + 2, min(pH - 18, y1 + 20), label, color)
 
-    def _draw_badge(x1, y1, text, fill_rgba, outline_rgba=None, text_fill=(255,255,255)):
-        if not text:
-            return
-        x1 = max(4, x1)
-        y1 = max(4, y1)
-        pad_x, pad_y = 6, 4
-        bbox = drw.textbbox((0, 0), text, font=font)
-        bw = (bbox[2] - bbox[0]) + pad_x * 2
-        bh = (bbox[3] - bbox[1]) + pad_y * 2
-        x2 = min(pW - 4, x1 + bw)
-        y2 = min(pH - 4, y1 + bh)
-        drw.rounded_rectangle([x1, y1, x2, y2], radius=5, fill=fill_rgba, outline=outline_rgba)
-        drw.text((x1 + pad_x, y1 + pad_y - 1), text, fill=text_fill, font=font)
+    if show_guides:
+        base = Image.alpha_composite(base, overlay)
 
-    # 1) 실제 교체된 내용을 먼저 합성
-    for layer in editable:
-        layer_input = inputs.get(str(layer['idx']), {})
-        value = layer_input.get('value')
-        if not value:
-            continue
+    out = io.BytesIO()
+    base.convert('RGB').save(out, 'JPEG', quality=88)
+    return base64.b64encode(out.getvalue()).decode()
 
-        x1, y1, x2, y2 = _layer_box(layer)
-        if x2 - x1 < 6 or y2 - y1 < 6:
-            continue
-
-        if layer['type'] == 'image' and layer_input.get('kind') == 'image_bytes':
-            try:
-                rep = Image.open(io.BytesIO(base64.b64decode(value))).convert("RGB")
-                fitted = ImageOps.fit(rep, (x2 - x1, y2 - y1), method=Image.LANCZOS)
-                canvas.alpha_composite(fitted.convert("RGBA"), (x1, y1))
-            except Exception:
-                pass
-        elif layer['type'] == 'text' and layer_input.get('kind') == 'text_value':
-            pad = 6
-            drw.rounded_rectangle([x1, y1, x2, y2], radius=4, fill=(255, 255, 255, 235), outline=(53, 137, 255, 255), width=2)
-            text_value = str(value).strip()
-            max_w = max(40, (x2 - x1) - pad * 2)
-            lines = []
-            for part in text_value.split("\n"):
-                lines.extend(_wrap_text(drw, part, max_w))
-            line_h = 14
-            max_lines = max(1, ((y2 - y1) - pad * 2) // line_h)
-            lines = lines[:max_lines]
-            ty = y1 + pad
-            for line in lines:
-                drw.text((x1 + pad, ty), line, fill=(20, 20, 20), font=font)
-                ty += line_h
-
-    # 2) 모든 영역을 색상/번호/상태 배지로 시각화
-    for layer in editable:
-        x1, y1, x2, y2 = _layer_box(layer)
-        if x2 - x1 < 3 or y2 - y1 < 3:
-            continue
-
-        lt = layer['type']
-        is_active = (layer['idx'] == active_idx)
-        has_value = bool(inputs.get(str(layer['idx']), {}).get('value'))
-        is_image = (lt == 'image')
-
-        if has_value:
-            fill = (40, 210, 100, 24) if is_image else (53, 137, 255, 24)
-            outline = (40, 210, 100, 255) if is_image else (53, 137, 255, 255)
-            line_w = 6 if is_active else 4
-            label = f"교체됨 · {_label_text(layer)}"
-            badge_fill = (18, 132, 62, 236) if is_image else (32, 95, 186, 236)
-        else:
-            fill = (255, 90, 90, 24) if is_active else ((108, 175, 255, 10) if is_image else (255, 199, 0, 10))
-            outline = (255, 72, 72, 255) if is_active else ((108, 175, 255, 115) if is_image else (255, 199, 0, 115))
-            line_w = 7 if is_active else 2
-            label = f"선택중 · {_label_text(layer)}" if is_active else _label_text(layer)
-            badge_fill = (190, 36, 36, 238) if is_active else ((32, 46, 84, 215) if is_image else (110, 90, 24, 220))
-
-        drw.rectangle([x1, y1, x2, y2], fill=fill, outline=outline, width=line_w)
-
-        if is_active:
-            c = (255, 72, 72, 255)
-            seg = max(16, min(42, max(12, (x2 - x1) // 5), max(12, (y2 - y1) // 5)))
-            drw.line([x1, y1, x1 + seg, y1], fill=c, width=4)
-            drw.line([x1, y1, x1, y1 + seg], fill=c, width=4)
-            drw.line([x2, y1, x2 - seg, y1], fill=c, width=4)
-            drw.line([x2, y1, x2, y1 + seg], fill=c, width=4)
-            drw.line([x1, y2, x1 + seg, y2], fill=c, width=4)
-            drw.line([x1, y2, x1, y2 - seg], fill=c, width=4)
-            drw.line([x2, y2, x2 - seg, y2], fill=c, width=4)
-            drw.line([x2, y2, x2, y2 - seg], fill=c, width=4)
-
-        badge_y = y1 + 6
-        if is_active and has_value:
-            _draw_badge(x1 + 6, badge_y, f"방금 교체 · {_label_text(layer)}", (200, 40, 40, 242))
-            _draw_badge(x1 + 6, badge_y + 24, "미리보기 반영됨", badge_fill)
-        else:
-            _draw_badge(x1 + 6, badge_y, label, badge_fill)
-
-    merged = Image.alpha_composite(canvas, ov).convert("RGB")
-    buf = io.BytesIO()
-    merged.save(buf, "JPEG", quality=90)
-    return base64.b64encode(buf.getvalue()).decode()
+# ── 오버레이 이미지 생성 (캐시)
+@st.cache_data(show_spinner=False)
+def _make_overlay(prev_bytes: bytes, editable_json: str, active_idx, inp_json: str, W_orig: int, H_orig: int) -> str:
+    return _make_live_preview(prev_bytes, editable_json, active_idx, inp_json, W_orig, H_orig, show_guides=True)
 
 
 def render():
@@ -261,7 +195,8 @@ def render():
         st.markdown("### PSD 템플릿 선택")
         tpl_list = list(all_tpl.items())
 
-        # 6열 레이아웃 + 2cm 세로형 썸네일
+        # 6열 레이아웃: 각 카드 가로 약 2cm(80px)
+        # 썸네일은 가로 전체, 세로 이미지 전체 비율
         COLS = 6
         for row in range(0, len(tpl_list), COLS):
             cols = st.columns(COLS, gap="small")
@@ -270,49 +205,51 @@ def render():
                     name = meta.get('name','')
                     w, h = meta.get("canvas_size",[0,0])
 
+                    # 이름 (작게)
                     st.markdown(
                         f'<div style="font-size:11px;font-weight:700;color:#ddd;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
                         f'margin-bottom:3px">{name}</div>',
                         unsafe_allow_html=True)
-                    st.caption(f"{w}×{h}px")
 
-                    b1, b2 = st.columns([2.4, 1], gap="small")
-                    with b1:
-                        if st.button("사용", key=f"tsel_{tid}",
-                                     use_container_width=True, type="primary"):
-                            st.session_state.pu_sel  = tid
-                            st.session_state.pu_inp  = {}
-                            st.session_state.pu_act  = None
-                            st.session_state.pu_prev = None
-                            st.rerun()
-                    with b2:
-                        if st.session_state.pu_del_confirm == tid:
+                    # 썸네일 (가로 전체, 세로 전체 이미지)
+                    b64 = get_thumb_b64(tid)
+                    if b64:
+                        st.markdown(
+                            f'<div style="width:100%;border-radius:4px;overflow:hidden;'
+                            f'border:1px solid rgba(255,255,255,0.12);margin-bottom:4px">'
+                            f'<img src="data:image/jpeg;base64,{b64}" '
+                            f'style="width:100%;display:block;"></div>',
+                            unsafe_allow_html=True)
+
+                    # 사용 버튼 (작게)
+                    if st.button("사용", key=f"tsel_{tid}",
+                                 use_container_width=True, type="primary"):
+                        st.session_state.pu_sel  = tid
+                        st.session_state.pu_inp  = {}
+                        st.session_state.pu_act  = None
+                        st.session_state.pu_prev = None
+                        st.rerun()
+
+                    # 삭제 버튼
+                    if st.session_state.pu_del_confirm == tid:
+                        _dc1, _dc2 = st.columns(2)
+                        with _dc1:
+                            if st.button("삭제", key=f"del_cfm_{tid}",
+                                         type="primary", use_container_width=True):
+                                _delete_template(tid)
+                                st.session_state.pu_del_confirm = None
+                                st.rerun()
+                        with _dc2:
                             if st.button("취소", key=f"del_cnc_{tid}",
                                          use_container_width=True):
                                 st.session_state.pu_del_confirm = None
                                 st.rerun()
-                        else:
-                            if st.button("🗑️", key=f"del_{tid}",
-                                         use_container_width=True, help="삭제"):
-                                st.session_state.pu_del_confirm = tid
-                                st.rerun()
-
-                    if st.session_state.pu_del_confirm == tid:
-                        if st.button("삭제", key=f"del_cfm_{tid}",
-                                     type="primary", use_container_width=True):
-                            _delete_template(tid)
-                            st.session_state.pu_del_confirm = None
+                    else:
+                        if st.button("🗑️", key=f"del_{tid}",
+                                     use_container_width=True, help="삭제"):
+                            st.session_state.pu_del_confirm = tid
                             st.rerun()
-
-                    b64 = get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(
-                            f'<div style="width:2cm;margin:8px auto 0 auto;border-radius:4px;overflow:hidden;'
-                            f'border:1px solid rgba(255,255,255,0.12);background:#111">'
-                            f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:2cm;height:auto;display:block;"></div>',
-                            unsafe_allow_html=True)
         return
 
     # ════════════════════════════════════════
@@ -330,14 +267,30 @@ def render():
 
     layers = info['layers']
     W, H   = info['width'], info['height']
-    editable_all, txt_all, img_all = build_editable_layer_sets(info)
     editable_idxs = set(int(k) for k,v in info.get('editable_layers',{}).items() if v)
-    editable = [l for l in editable_all if l['idx'] in editable_idxs and l.get('w', 0) > 0 and l.get('h', 0) > 0]
-    txt_lays = [l for l in txt_all if l['idx'] in editable_idxs]
-    img_lays = [l for l in img_all if l['idx'] in editable_idxs]
-    psd_info_for_thumb = dict(info)
-    psd_info_for_thumb['raw'] = base64.b64encode(psd_bytes).decode()
-    psd_json_for_thumb = json.dumps(psd_info_for_thumb)
+    editable = sorted(
+        [l for l in layers if l['idx'] in editable_idxs and l['w']>0 and l['h']>0],
+        key=lambda l: l['rect'][0]
+    )
+    img_lays = [l for l in editable if l['type']=='pixel']
+    txt_lays = [l for l in editable if l['type']=='text']
+
+    # 사용자용 이름/순서 보정
+    for i, l in enumerate(img_lays, start=1):
+        l['display_order'] = i
+        if i == 1 and l['w'] >= W * 0.9:
+            l['display_name'] = '이미지 1 · 전체 배경이미지'
+        elif l['w'] >= W * 0.9:
+            l['display_name'] = f'이미지 {i} · 배경이미지'
+        else:
+            l['display_name'] = f'이미지 {i}'
+    for i, l in enumerate(txt_lays, start=1):
+        l['display_order'] = i
+        preview_text = (l.get('text') or '').replace('\n', ' ').strip()
+        if preview_text:
+            l['display_name'] = f'텍스트 {i} · {preview_text[:18]}'
+        else:
+            l['display_name'] = f'텍스트 {i}'
 
     # 미리보기 로드
     if st.session_state.pu_prev is None:
@@ -374,14 +327,15 @@ def render():
             f'border-radius:6px;margin-bottom:8px">🖼️ 이미지 교체 {id_}/{len(img_lays)}</div>',
             unsafe_allow_html=True)
 
-        for order_no, l in enumerate(img_lays, start=1):
+        for l in img_lays:
             is_a  = (act == l['idx'])
             has_v = bool(inp.get(l['idx'],{}).get('value'))
             s     = "✅" if has_v else ("▶" if is_a else "○")
             bg    = "rgba(100,160,230,0.12)" if is_a else "rgba(255,255,255,0.02)"
             border= "2px solid #78a8f0" if is_a else "1px solid rgba(255,255,255,0.07)"
 
-            thumb = _layer_thumb(psd_json_for_thumb, l['idx'], tuple(l['rect']), size=56)
+            # 썸네일 + 레이어 정보 카드
+            thumb = _layer_thumb(psd_bytes, tuple(l['rect']), size=56)
             th_html = (
                 f'<img src="data:image/jpeg;base64,{thumb}" '
                 f'style="width:56px;height:56px;object-fit:cover;'
@@ -393,8 +347,14 @@ def render():
                 f'display:flex;align-items:center;justify-content:center;font-size:20px">🖼️</div>'
             )
 
+            # 레이어 크기로 유형 추정
             lw, lh = l['w'], l['h']
-            display_label = l.get('display_label') or f'이미지 {order_no}'
+            if lw >= W * 0.9:
+                layer_type = "배경/전체"
+            elif lw > 400 or lh > 400:
+                layer_type = "사진"
+            else:
+                layer_type = "요소"
 
             st.markdown(
                 f'<div style="background:{bg};border:{border};border-radius:8px;'
@@ -404,9 +364,9 @@ def render():
                 f'<div style="color:{"#78a8f0" if is_a else "#bbb"};font-size:12px;'
                 f'font-weight:{"700" if is_a else "400"};overflow:hidden;'
                 f'text-overflow:ellipsis;white-space:nowrap">'
-                f'{s} {display_label}</div>'
+                f'{s} {l["name"][:20]}</div>'
                 f'<div style="color:#666;font-size:10px">'
-                f'{lw}×{lh}px</div>'
+                f'[{layer_type}] {lw}×{lh}px</div>'
                 f'</div></div>',
                 unsafe_allow_html=True,
             )
@@ -448,12 +408,12 @@ def render():
             f'border-radius:6px;margin-bottom:8px">✏️ 텍스트 교체 {td}/{len(txt_lays)}</div>',
             unsafe_allow_html=True)
 
-        for order_no, l in enumerate(txt_lays, start=1):
+        for l in txt_lays:
             is_a  = (act == l['idx'])
             has_v = bool(inp.get(l['idx'],{}).get('value'))
             s     = "✅" if has_v else ("▶" if is_a else "○")
             if st.button(
-                f"{s} {l.get('display_label') or f'텍스트 {order_no}'}",
+                f"{s} {l.get('display_name', l['name'])[:30]}",
                 key=f"ptb{l['idx']}",
                 use_container_width=True,
                 type="primary" if is_a else "secondary",
@@ -488,24 +448,28 @@ def render():
             'padding:6px 10px;background:rgba(255,255,255,0.04);'
             'border-radius:6px;margin-bottom:8px">📄 PSD 미리보기</div>',
             unsafe_allow_html=True)
-        st.caption("실시간 교체 미리보기 · 교체 위치는 색상 박스와 번호 배지로 즉시 표시됩니다")
+        st.caption("실시간 교체 미리보기. 교체된 영역은 즉시 반영되고 배지/테두리로 강조됩니다.")
 
         if st.session_state.pu_prev:
             editable_json = json.dumps([
                 {'idx':l['idx'],'type':l['type'],'rect':list(l['rect']),
-                 'name':l.get('display_label') or l.get('name',''),'w':l['w'],'h':l['h']}
+                 'name':l['name'],'display_name':l.get('display_name', l['name']),
+                 'display_order':l.get('display_order',''),
+                 'w':l['w'],'h':l['h']}
                 for l in editable
             ])
             inp_json = json.dumps({
                 str(idx): {
-                    'value': (base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else v.get('value')),
-                    'kind': ('image_bytes' if v.get('type') == 'image' and v.get('value') else 'text_value')
+                    'has_value': bool(v.get('value')),
+                    'type': v.get('type'),
+                    'value': v.get('value') if v.get('type') == 'text' else '',
+                    'value_b64': base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else ''
                 }
-                for idx, v in inp.items() if v.get('value')
+                for idx, v in inp.items()
             })
             b64 = _make_live_preview(
                 st.session_state.pu_prev,
-                editable_json, act, inp_json, W, H,
+                editable_json, act, inp_json, W, H, True
             )
             st.markdown(
                 f'<div style="overflow-y:scroll;max-height:900px;'
@@ -520,17 +484,11 @@ def render():
         act_layer = next((l for l in layers if l['idx']==act), None)
         if act_layer:
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
-            if act_layer['type'] == 'text':
-                order_no = next((i for i, x in enumerate(txt_lays, start=1) if x['idx'] == act_layer['idx']), None)
-                active_label = act_layer.get('display_label') or f'텍스트 {order_no or 0}'
-            else:
-                order_no = next((i for i, x in enumerate(img_lays, start=1) if x['idx'] == act_layer['idx']), None)
-                active_label = act_layer.get('display_label') or f'이미지 {order_no or 0}'
             st.markdown(
                 f'<div style="color:{t_col};font-weight:700;margin-top:6px;'
                 f'padding:6px;background:rgba(255,255,255,0.04);'
                 f'border-radius:6px;text-align:center;font-size:12px">'
-                f'★ 선택: {active_label}</div>',
+                f'★ 선택: {act_layer["name"]}</div>',
                 unsafe_allow_html=True)
 
     st.divider()
@@ -561,32 +519,44 @@ def render():
                     safe = meta['name'].replace(' ','_')[:30]
                     now  = datetime.now().strftime('%Y%m%d_%H%M')
                     zbuf = io.BytesIO()
-                    live_preview_bytes = None
+                    editable_json = json.dumps([
+                        {'idx':l['idx'],'type':l['type'],'rect':list(l['rect']),
+                         'name':l['name'],'display_name':l.get('display_name', l['name']),
+                         'display_order':l.get('display_order',''),
+                         'w':l['w'],'h':l['h']}
+                        for l in editable
+                    ])
+                    inp_json = json.dumps({
+                        str(idx): {
+                            'has_value': bool(v.get('value')),
+                            'type': v.get('type'),
+                            'value': v.get('value') if v.get('type') == 'text' else '',
+                            'value_b64': base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else ''
+                        }
+                        for idx, v in inp.items()
+                    })
+                    clean_preview = None
+                    guide_preview = None
                     if st.session_state.pu_prev:
-                        editable_json = json.dumps([
-                            {'idx':l['idx'],'type':l['type'],'rect':list(l['rect']),
-                             'name':l.get('display_label') or l.get('name',''),'w':l['w'],'h':l['h']}
-                            for l in editable
-                        ])
-                        inp_json = json.dumps({
-                            str(idx): {
-                                'value': (base64.b64encode(v.get('value')).decode() if v.get('type') == 'image' and v.get('value') else v.get('value')),
-                                'kind': ('image_bytes' if v.get('type') == 'image' and v.get('value') else 'text_value')
-                            }
-                            for idx, v in inp.items() if v.get('value')
-                        })
-                        live_preview_bytes = base64.b64decode(_make_live_preview(
-                            st.session_state.pu_prev, editable_json, act, inp_json, W, H
-                        ))
+                        clean_preview_b64 = _make_live_preview(st.session_state.pu_prev, editable_json, act, inp_json, W, H, False)
+                        clean_preview = base64.b64decode(clean_preview_b64)
+                        guide_preview_b64 = _make_live_preview(st.session_state.pu_prev, editable_json, act, inp_json, W, H, True)
+                        guide_preview = base64.b64decode(guide_preview_b64)
 
                     with zipfile.ZipFile(zbuf,'w',zipfile.ZIP_DEFLATED) as zf:
                         zf.writestr(f"{safe}_{now}.jsx", jsx.encode('utf-8'))
-                        if live_preview_bytes:
-                            zf.writestr(f"{safe}_{now}_preview.jpg", live_preview_bytes)
+                        zf.writestr(f"{safe}.psd", psd_bytes)
+                        if clean_preview:
+                            zf.writestr(f"{safe}_{now}_preview.jpg", clean_preview)
+                        if guide_preview:
+                            zf.writestr(f"{safe}_{now}_guide.jpg", guide_preview)
                         zf.writestr("README.txt",
                             (f"미샵 템플릿 OS | {meta['name']} | {now}\n"
-                             f"이미지 {len(img_rep)}개 텍스트 {len(txt_rep)}개\n"
-                             "포토샵 File>Scripts>Browse 에서 jsx 실행 (CS5~CC)")
+                             f"이미지 {len(img_rep)}개 텍스트 {len(txt_rep)}개\n\n"
+                             "1) ZIP을 같은 폴더에 압축 해제하세요.\n"
+                             "2) 포토샵에서 File > Scripts > Browse 로 JSX를 실행하세요.\n"
+                             "3) ZIP 안에 포함된 PSD를 자동으로 찾아 열고 교체합니다.\n"
+                             "4) _preview.jpg 는 최종 결과 확인용, _guide.jpg 는 교체 영역 확인용입니다.")
                             .encode('utf-8'))
                     st.download_button(
                         "⬇️ ZIP 다운로드 (JSX + 미리보기JPG)",
