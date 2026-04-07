@@ -284,12 +284,118 @@ def parse_psd(psd_bytes: bytes) -> dict:
     }
 
 
+
+
+def _trim_transparent_bounds(img: Image.Image) -> Image.Image:
+    """알파 기준으로 실제 보이는 영역만 잘라낸다."""
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
+    alpha = img.getchannel('A')
+    bbox = alpha.getbbox()
+    if bbox:
+        try:
+            cropped = img.crop(bbox)
+            if cropped.width > 0 and cropped.height > 0:
+                return cropped
+        except Exception:
+            pass
+    return img
+
+
+def _layer_visual_priority(layer: dict, canvas_w: int, canvas_h: int):
+    t, l, b, r = layer.get('rect', (0, 0, 0, 0))
+    w = max(0, int(layer.get('w', 0)))
+    h = max(0, int(layer.get('h', 0)))
+    # 화면상 위→아래, 좌→우 기준. 배경은 가장 먼저 오도록 살짝 우선.
+    is_bg = _is_background_like(layer, canvas_w, canvas_h)
+    return (0 if is_bg else 1, t, l, layer.get('idx', 0))
+
+
+def _is_background_like(layer: dict, canvas_w: int, canvas_h: int) -> bool:
+    t, l, b, r = layer.get('rect', (0, 0, 0, 0))
+    w = max(0, int(layer.get('w', 0)))
+    h = max(0, int(layer.get('h', 0)))
+    return (
+        w >= canvas_w * 0.92 and
+        h >= canvas_h * 0.92 and
+        l <= canvas_w * 0.04 and
+        t <= canvas_h * 0.04
+    )
+
+
+def is_editable_visual_image_layer(layer: dict, canvas_w: int, canvas_h: int) -> bool:
+    if layer.get('type') != 'pixel':
+        return False
+    if layer.get('is_adjustment'):
+        return False
+    if not layer.get('visible', True):
+        return False
+    if layer.get('w', 0) <= 30 or layer.get('h', 0) <= 10:
+        return False
+    if layer.get('num_channels', 0) < 3:
+        return False
+    # 포토샵 효과/보정 관련 레이어명 흔적 제외
+    lname = (layer.get('name') or '').strip().lower()
+    banned_tokens = ['gradient fill', 'solid color', 'color fill', 'brightness', 'contrast', 'vibrance', 'curve', 'levels']
+    if any(tok in lname for tok in banned_tokens):
+        return False
+    return True
+
+
+def sort_layers_by_visual_position(layers: list[dict], canvas_w: int, canvas_h: int) -> list[dict]:
+    return sorted(layers, key=lambda layer: _layer_visual_priority(layer, canvas_w, canvas_h))
+
+
+def image_display_label(layer: dict, order_no: int, canvas_w: int, canvas_h: int) -> str:
+    if _is_background_like(layer, canvas_w, canvas_h):
+        return f"이미지 {order_no} · 전체 배경이미지"
+    if layer.get('w', 0) >= canvas_w * 0.9:
+        return f"이미지 {order_no} · 배경이미지"
+    return f"이미지 {order_no}"
+
+
+def text_display_label(layer: dict, order_no: int) -> str:
+    preview = (layer.get('text') or '').split('\n')[0].strip()
+    return f"텍스트 {order_no}" + (f" · {preview[:24]}" if preview else '')
+
+
+def build_editable_layer_sets(psd_info: dict):
+    """사용/생성 화면 공통: 실제 교체 후보 레이어 목록과 표시명 생성."""
+    layers = psd_info.get('layers', [])
+    canvas_w = int(psd_info.get('width', 0) or 0)
+    canvas_h = int(psd_info.get('height', 0) or 0)
+
+    txt_layers = [
+        l for l in layers
+        if l.get('type') == 'text' and l.get('visible', True) and l.get('w', 0) > 20 and l.get('h', 0) > 8
+    ]
+    img_layers = [
+        l for l in layers
+        if is_editable_visual_image_layer(l, canvas_w, canvas_h)
+    ]
+
+    txt_layers = sort_layers_by_visual_position(txt_layers, canvas_w, canvas_h)
+    img_layers = sort_layers_by_visual_position(img_layers, canvas_w, canvas_h)
+
+    for i, layer in enumerate(img_layers, start=1):
+        layer['display_label'] = image_display_label(layer, i, canvas_w, canvas_h)
+        layer['visual_order'] = i
+    for i, layer in enumerate(txt_layers, start=1):
+        layer['display_label'] = text_display_label(layer, i)
+        layer['visual_order'] = i
+
+    editable_layers = txt_layers + img_layers
+    editable_layers = sort_layers_by_visual_position(editable_layers, canvas_w, canvas_h)
+    return editable_layers, txt_layers, img_layers
+
+
 def get_layer_thumbnail(psd_info: dict, layer_idx: int, max_size: int = 300) -> bytes | None:
     """레이어 픽셀 데이터를 썸네일 JPEG로 반환."""
     layer = next((l for l in psd_info['layers'] if l['idx'] == layer_idx), None)
     if not layer or layer['type'] != 'pixel': return None
     img = _extract_layer_thumbnail(None, layer, psd_info['raw'])
     if img is None: return None
+    img = _trim_transparent_bounds(img)
     img.thumbnail((max_size, max_size), Image.LANCZOS)
     buf = io.BytesIO()
     img.convert('RGB').save(buf, 'JPEG', quality=82)

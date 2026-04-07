@@ -15,46 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.template_manager import (
     load_all, load_one, get_thumb_b64, load_psd_info, get_psd_bytes
 )
-from utils.psd_parser import psd_to_preview_jpg, get_layer_thumbnail
+from utils.psd_parser import (
+    psd_to_preview_jpg, get_layer_thumbnail, build_editable_layer_sets
+)
 from utils.psd_jsx_builder import build_psd_edit_jsx
 
 
-
-
-def _sort_layers_by_visual_position(layers):
-    return sorted(layers, key=lambda l: (l['rect'][0], l['rect'][1], l['idx']))
-
-
-def _is_visual_image_layer(layer, canvas_w, canvas_h):
-    if layer.get('type') != 'pixel':
-        return False
-    if layer.get('is_adjustment'):
-        return False
-    if not layer.get('visible', True):
-        return False
-    if layer.get('w', 0) <= 30 or layer.get('h', 0) <= 10:
-        return False
-    return True
-
-
-def _image_display_label(layer, order_no, canvas_w, canvas_h):
-    w = layer.get('w', 0)
-    h = layer.get('h', 0)
-    left = layer.get('rect', [0, 0, 0, 0])[1]
-    top = layer.get('rect', [0, 0, 0, 0])[0]
-    full_bleed = (w >= canvas_w * 0.9 and h >= canvas_h * 0.9 and left <= canvas_w * 0.05 and top <= canvas_h * 0.05)
-    if full_bleed:
-        return f"이미지 {order_no} · 전체 배경이미지"
-    if w >= canvas_w * 0.9:
-        return f"이미지 {order_no} · 배경이미지"
-    return f"이미지 {order_no}"
-
-
-def _text_display_label(layer, order_no):
-    preview = (layer.get('text') or '').split('\n')[0].strip()
-    if preview:
-        return f"텍스트 {order_no} · {preview[:24]}"
-    return f"텍스트 {order_no}"
 
 # ── 템플릿 삭제
 def _delete_template(tid):
@@ -268,12 +234,11 @@ def render():
 
     layers = info['layers']
     W, H   = info['width'], info['height']
+    editable_all, txt_all, img_all = build_editable_layer_sets(info)
     editable_idxs = set(int(k) for k,v in info.get('editable_layers',{}).items() if v)
-    editable = _sort_layers_by_visual_position(
-        [l for l in layers if l['idx'] in editable_idxs and l['w']>0 and l['h']>0]
-    )
-    img_lays = _sort_layers_by_visual_position([l for l in editable if _is_visual_image_layer(l, W, H)])
-    txt_lays = _sort_layers_by_visual_position([l for l in editable if l['type']=='text'])
+    editable = [l for l in editable_all if l['idx'] in editable_idxs and l.get('w', 0) > 0 and l.get('h', 0) > 0]
+    txt_lays = [l for l in txt_all if l['idx'] in editable_idxs]
+    img_lays = [l for l in img_all if l['idx'] in editable_idxs]
     psd_info_for_thumb = dict(info)
     psd_info_for_thumb['raw'] = base64.b64encode(psd_bytes).decode()
     psd_json_for_thumb = json.dumps(psd_info_for_thumb)
@@ -333,7 +298,7 @@ def render():
             )
 
             lw, lh = l['w'], l['h']
-            display_label = _image_display_label(l, order_no, W, H)
+            display_label = l.get('display_label') or f'이미지 {order_no}'
 
             st.markdown(
                 f'<div style="background:{bg};border:{border};border-radius:8px;'
@@ -392,7 +357,7 @@ def render():
             has_v = bool(inp.get(l['idx'],{}).get('value'))
             s     = "✅" if has_v else ("▶" if is_a else "○")
             if st.button(
-                f"{s} {_text_display_label(l, order_no)}",
+                f"{s} {l.get('display_label') or f'텍스트 {order_no}'}",
                 key=f"ptb{l['idx']}",
                 use_container_width=True,
                 type="primary" if is_a else "secondary",
@@ -432,7 +397,7 @@ def render():
         if st.session_state.pu_prev:
             editable_json = json.dumps([
                 {'idx':l['idx'],'type':l['type'],'rect':list(l['rect']),
-                 'name':l['name'],'w':l['w'],'h':l['h']}
+                 'name':l.get('display_label') or l.get('name',''),'w':l['w'],'h':l['h']}
                 for l in editable
             ])
             inp_json = json.dumps({
@@ -458,10 +423,10 @@ def render():
             t_col = "#C8A876" if act_layer['type']=='text' else "#78a8f0"
             if act_layer['type'] == 'text':
                 order_no = next((i for i, x in enumerate(txt_lays, start=1) if x['idx'] == act_layer['idx']), None)
-                active_label = _text_display_label(act_layer, order_no or 0)
+                active_label = act_layer.get('display_label') or f'텍스트 {order_no or 0}'
             else:
                 order_no = next((i for i, x in enumerate(img_lays, start=1) if x['idx'] == act_layer['idx']), None)
-                active_label = _image_display_label(act_layer, order_no or 0, W, H)
+                active_label = act_layer.get('display_label') or f'이미지 {order_no or 0}'
             st.markdown(
                 f'<div style="color:{t_col};font-weight:700;margin-top:6px;'
                 f'padding:6px;background:rgba(255,255,255,0.04);'
