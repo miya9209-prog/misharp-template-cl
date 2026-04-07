@@ -79,42 +79,69 @@ def _make_overlay_cached(prev_bytes: bytes, editable_json: str,
 @st.cache_data(show_spinner=False)
 def _extract_layer_thumb(psd_bytes: bytes, layer_idx: int,
                           rect: tuple, thumb_h: int = 60) -> str | None:
-    """레이어 영역을 PSD 병합 이미지에서 잘라 썸네일로 반환"""
+    """
+    레이어 영역을 PSD 병합 이미지에서 정확히 잘라 썸네일로 반환.
+    thumb_size × thumb_size 정사각형 박스에 cover 방식으로 맞춤.
+    """
     try:
+        import struct
         prev = psd_to_preview_jpg(psd_bytes, max_width=900)
         full = Image.open(io.BytesIO(prev)).convert("RGB")
         pW, pH = full.size
 
-        # rect = (top, left, bottom, right) 원본 PSD 좌표
         t, le, b, r = rect
-        # 원본 PSD 크기 구하기 (parse_psd 없이 헤더에서)
-        import struct
         W_orig = struct.unpack('>I', psd_bytes[18:22])[0]
         H_orig = struct.unpack('>I', psd_bytes[14:18])[0]
 
         sx, sy = pW / W_orig, pH / H_orig
-        x1, y1 = int(le*sx), int(t*sy)
-        x2, y2 = int(r*sx),  int(b*sy)
-        x1, y1 = max(0,x1), max(0,y1)
-        x2, y2 = min(pW,x2), min(pH,y2)
+        x1, y1 = max(0, int(le*sx)), max(0, int(t*sy))
+        x2, y2 = min(pW, int(r*sx)),  min(pH, int(b*sy))
 
         if x2-x1 < 5 or y2-y1 < 5:
             return None
 
         crop = full.crop((x1, y1, x2, y2))
-        # 세로 thumb_h 기준 리사이즈
-        ratio = thumb_h / crop.height
-        new_w = max(1, int(crop.width * ratio))
-        crop  = crop.resize((new_w, thumb_h), Image.LANCZOS)
+        cW, cH = crop.size
+
+        # 정사각형(thumb_h) cover: 짧은 쪽이 thumb_h가 되도록 리사이즈 후 중앙 크롭
+        scale = thumb_h / min(cW, cH)
+        new_w = max(1, int(cW * scale))
+        new_h = max(1, int(cH * scale))
+        crop  = crop.resize((new_w, new_h), Image.LANCZOS)
+
+        # 중앙 크롭
+        cx, cy = new_w // 2, new_h // 2
+        half   = thumb_h // 2
+        left   = max(0, cx - half)
+        top    = max(0, cy - half)
+        crop   = crop.crop((left, top, left + thumb_h, top + thumb_h))
 
         buf = io.BytesIO()
-        crop.save(buf, "JPEG", quality=82)
+        crop.save(buf, "JPEG", quality=85)
         return base64.b64encode(buf.getvalue()).decode()
     except Exception:
         return None
 
 
 def render():
+    # 버튼 텍스트 좌측 정렬 강제 (인라인 스타일)
+    st.markdown("""
+<style>
+div[data-testid="stButton"] button {
+    text-align: left !important;
+    justify-content: flex-start !important;
+}
+div[data-testid="stButton"] button > div {
+    justify-content: flex-start !important;
+    width: 100%;
+}
+div[data-testid="stButton"] button p {
+    text-align: left !important;
+    width: 100%;
+}
+</style>
+""", unsafe_allow_html=True)
+
     st.markdown('<div class="section-title">③ 템플릿 불러오기</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-desc">PSD 템플릿을 불러와 텍스트·이미지를 교체하고 새 PSD로 저장하세요</div>', unsafe_allow_html=True)
 
@@ -156,12 +183,12 @@ def render():
                     b64 = get_thumb_b64(tid)
                     if b64:
                         st.markdown(
-                            f'<div style="width:100%;height:110px;background:#111;'
-                            f'border-radius:6px;margin-top:4px;overflow:hidden;'
-                            f'border:1px solid rgba(255,255,255,0.08)">'
+                            f'<div style="width:100%;height:300px;background:#0d0d0d;'
+                            f'border-radius:8px;margin-top:6px;overflow:hidden;'
+                            f'border:1px solid rgba(255,255,255,0.1)">'
                             f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:100%;height:110px;object-fit:contain;'
-                            f'object-position:top"></div>',
+                            f'style="width:100%;height:300px;object-fit:cover;'
+                            f'object-position:top;display:block;"></div>',
                             unsafe_allow_html=True)
         return
 
@@ -211,93 +238,97 @@ def render():
 
     # ── 왼쪽
     with col_left:
+        # ══════════════════════════════════════════
+        # 순서: 이미지 레이어 → 텍스트 레이어
+        # 각 버튼 바로 아래 입력칸 (헤매지 않도록)
+        # ══════════════════════════════════════════
 
-        # 활성 레이어 입력칸
-        if act_layer:
-            lt    = act_layer['type']
-            t_col = "#C8A876" if lt=='text' else "#78a8f0"
-            icon  = "✏️" if lt=='text' else "🖼️"
-            bg    = "rgba(200,168,118,0.10)" if lt=='text' else "rgba(100,160,230,0.08)"
-            cur   = inp.get(act_layer['idx'], {})
-
-            # 헤더 - 좌측 정렬
-            st.markdown(
-                f'<div style="background:{bg};border:2px solid {t_col};'
-                f'border-radius:8px;padding:8px 12px;margin-bottom:6px;'
-                f'color:{t_col};font-weight:700;font-size:14px;text-align:left">'
-                f'{icon} {act_layer["name"]}'
-                f'<span style="color:#888;font-size:11px;font-weight:400;margin-left:8px">'
-                f'{act_layer["w"]}×{act_layer["h"]}px</span></div>',
-                unsafe_allow_html=True,
-            )
-
-            if lt == 'text':
-                orig = act_layer.get('text','').split('\n')[0][:60]
-                if orig:
-                    st.caption(f"원본: {orig}")
-                new_txt = st.text_area(
-                    "새 텍스트",
-                    value=cur.get('value',''),
-                    height=90,
-                    key=f"ptxt{act_layer['idx']}",
-                    placeholder="교체할 텍스트 (비우면 원본 유지)",
-                )
-                if new_txt.strip():
-                    inp[act_layer['idx']] = {'value': new_txt, 'type': 'text'}
-                elif act_layer['idx'] in inp:
-                    del inp[act_layer['idx']]
-                st.session_state.pu_inp = inp
-
-            else:  # 이미지
-                st.caption(f"권장 크기: {act_layer['w']}×{act_layer['h']}px")
-
-                # 파일 업로더 (썸네일보다 먼저 렌더링 - 클릭 확보)
-                up = st.file_uploader(
-                    "🖼️ 이미지 파일 선택 (JPG / PNG)",
-                    type=["jpg","jpeg","png"],
-                    key=f"pimg{act_layer['idx']}",
-                )
-
-                # 현재 레이어 위치 썸네일 (파일 업로더 아래)
-                thumb_b64 = _extract_layer_thumb(
-                    psd_bytes, act_layer['idx'],
-                    tuple(act_layer['rect']), thumb_h=70
-                )
-                if thumb_b64:
-                    st.caption("현재 레이어 위치")
-                    import base64 as _b64m
-                    st.image(io.BytesIO(_b64m.b64decode(thumb_b64)), width=200)
-
-                if up:
-                    raw_img = up.read()
-                    inp[act_layer['idx']] = {'value': raw_img, 'type': 'image'}
-                    st.session_state.pu_inp = inp
-                    th = Image.open(io.BytesIO(raw_img))
-                    th.thumbnail((240, 120))
-                    st.image(th, caption="선택된 이미지")
-                elif cur.get('value'):
-                    st.success("✓ 이미지 교체 예정")
-
-        else:
-            st.markdown(
-                '<div style="color:#888;padding:16px;text-align:left;'
-                'background:rgba(255,255,255,0.03);border-radius:8px;'
-                'border:1.5px dashed rgba(255,255,255,0.12)">'
-                '아래 목록에서 레이어를 선택하면 입력칸이 표시됩니다</div>',
-                unsafe_allow_html=True,
-            )
-
-        st.divider()
-
-        # 레이어 목록
-        td  = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
         id_ = sum(1 for l in img_lays if inp.get(l['idx'],{}).get('value'))
-        st.write(f"**레이어 선택** | ✏️ {td}/{len(txt_lays)}  🖼️ {id_}/{len(img_lays)}")
-        st.caption("클릭 → 위 입력칸 활성화 | ✅완료  ▶선택중  ○미입력")
+        td  = sum(1 for l in txt_lays if inp.get(l['idx'],{}).get('value'))
+        st.caption(f"✅ 완료  ▶ 선택중  ○ 미입력 | 🖼️ {id_}/{len(img_lays)}  ✏️ {td}/{len(txt_lays)}")
 
-        # 텍스트 레이어 목록
+        # ── 🖼️ 이미지 레이어 먼저
+        if img_lays:
+            st.markdown(
+                '<div style="color:#78a8f0;font-weight:700;font-size:13px;'
+                'padding:6px 10px;background:rgba(100,160,230,0.08);'
+                'border-radius:6px;margin-bottom:6px">🖼️ 이미지 레이어</div>',
+                unsafe_allow_html=True,
+            )
+            for l in img_lays:
+                is_a  = (l['idx'] == act)
+                has_v = bool(inp.get(l['idx'],{}).get('value'))
+                s     = "✅" if has_v else ("▶" if is_a else "○")
+                bg    = "rgba(100,160,230,0.10)" if is_a else "rgba(255,255,255,0.02)"
+                border= "2px solid #78a8f0" if is_a else "1px solid rgba(255,255,255,0.07)"
+
+                # 썸네일 (작게, 카드 내)
+                thumb_b64 = _extract_layer_thumb(
+                    psd_bytes, l['idx'], tuple(l['rect']), thumb_h=48
+                )
+                th_html = (
+                    f'<img src="data:image/jpeg;base64,{thumb_b64}" '
+                    f'style="width:48px;height:48px;object-fit:cover;'
+                    f'border-radius:4px;flex-shrink:0;margin-right:8px">'
+                    if thumb_b64 else
+                    f'<div style="width:48px;height:48px;background:rgba(255,255,255,0.05);'
+                    f'border-radius:4px;flex-shrink:0;margin-right:8px;'
+                    f'display:flex;align-items:center;justify-content:center;font-size:16px">🖼️</div>'
+                )
+                st.markdown(
+                    f'<div style="background:{bg};border:{border};border-radius:8px;'
+                    f'padding:6px 10px;margin-bottom:2px;display:flex;align-items:center">'
+                    f'{th_html}'
+                    f'<div style="flex:1;min-width:0">'
+                    f'<div style="color:{"#78a8f0" if is_a else "#bbb"};font-size:12px;'
+                    f'font-weight:{"700" if is_a else "400"};'
+                    f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+                    f'{s} {l["name"][:22]}</div>'
+                    f'<div style="color:#666;font-size:10px">{l["w"]}×{l["h"]}px</div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+                # 선택 버튼
+                if st.button(
+                    "▶ 이미지 교체하기" if not is_a else "📂 이미지 파일 선택 ↓",
+                    key=f"pib{l['idx']}",
+                    use_container_width=True,
+                    type="primary" if is_a else "secondary",
+                ):
+                    st.session_state.pu_act = l['idx']
+                    st.rerun()
+
+                # 선택된 레이어 → 파일 업로더 바로 아래 표시
+                if is_a:
+                    cur = inp.get(l['idx'], {})
+                    st.caption(f"권장: {l['w']}×{l['h']}px")
+                    up = st.file_uploader(
+                        "이미지 파일 선택 (JPG / PNG)",
+                        type=["jpg","jpeg","png"],
+                        key=f"pimg{l['idx']}",
+                    )
+                    if up:
+                        raw_img = up.read()
+                        inp[l['idx']] = {'value': raw_img, 'type': 'image'}
+                        st.session_state.pu_inp = inp
+                        th = Image.open(io.BytesIO(raw_img))
+                        th.thumbnail((200, 100))
+                        st.image(th, caption="교체할 이미지")
+                    elif cur.get('value'):
+                        st.success("✓ 이미지 교체 예정")
+                    st.markdown("---")
+
+        elif not img_lays:
+            st.caption("이미지 레이어 없음 — ① PSD 생성에서 이미지 레이어 체크 후 재저장")
+
+        # ── ✏️ 텍스트 레이어 (이미지 다음)
         if txt_lays:
-            st.write("**✏️ 텍스트 레이어**")
+            st.markdown(
+                '<div style="color:#C8A876;font-weight:700;font-size:13px;'
+                'padding:6px 10px;background:rgba(200,168,118,0.08);'
+                'border-radius:6px;margin:8px 0 6px">✏️ 텍스트 레이어</div>',
+                unsafe_allow_html=True,
+            )
             for l in txt_lays:
                 is_a  = (l['idx'] == act)
                 has_v = bool(inp.get(l['idx'],{}).get('value'))
@@ -311,56 +342,26 @@ def render():
                     st.session_state.pu_act = l['idx']
                     st.rerun()
 
-        # 이미지 레이어 목록 (썸네일 포함)
-        if img_lays:
-            st.write("**🖼️ 이미지 레이어**")
-            for l in img_lays:
-                is_a  = (l['idx'] == act)
-                has_v = bool(inp.get(l['idx'],{}).get('value'))
-                s     = "✅" if has_v else ("▶" if is_a else "○")
-                t_col = "#78a8f0"
-                bg    = "rgba(100,160,230,0.12)" if is_a else "rgba(255,255,255,0.03)"
-                border= "2px solid #78a8f0" if is_a else "1px solid rgba(255,255,255,0.08)"
+                # 선택된 텍스트 레이어 → 입력칸 바로 아래
+                if is_a:
+                    cur = inp.get(l['idx'], {})
+                    orig = l.get('text','').split('\n')[0][:60]
+                    if orig:
+                        st.caption(f"원본: {orig}")
+                    new_txt = st.text_area(
+                        "새 텍스트",
+                        value=cur.get('value',''),
+                        height=80,
+                        key=f"ptxt{l['idx']}",
+                        placeholder="교체할 텍스트 (비우면 원본 유지)",
+                    )
+                    if new_txt.strip():
+                        inp[l['idx']] = {'value': new_txt, 'type': 'text'}
+                    elif l['idx'] in inp:
+                        del inp[l['idx']]
+                    st.session_state.pu_inp = inp
+                    st.markdown("---")
 
-                # 썸네일 + 버튼을 카드 형태로
-                thumb_b64 = _extract_layer_thumb(
-                    psd_bytes, l['idx'], tuple(l['rect']), thumb_h=60
-                )
-                thumb_html = (
-                    f'<img src="data:image/jpeg;base64,{thumb_b64}" '
-                    f'style="width:60px;height:60px;object-fit:cover;'
-                    f'border-radius:4px;flex-shrink:0;margin-right:8px">'
-                    if thumb_b64 else
-                    f'<div style="width:60px;height:60px;background:rgba(255,255,255,0.05);'
-                    f'border-radius:4px;flex-shrink:0;margin-right:8px;'
-                    f'display:flex;align-items:center;justify-content:center;'
-                    f'color:#555;font-size:18px">🖼️</div>'
-                )
-
-                st.markdown(
-                    f'<div style="background:{bg};border:{border};border-radius:8px;'
-                    f'padding:6px 10px;margin-bottom:4px;display:flex;align-items:center">'
-                    f'{thumb_html}'
-                    f'<div style="flex:1;min-width:0">'
-                    f'<div style="color:{"#78a8f0" if is_a else "#ccc"};font-size:12px;'
-                    f'font-weight:{"700" if is_a else "400"};white-space:nowrap;'
-                    f'overflow:hidden;text-overflow:ellipsis">'
-                    f'{s} {l["name"][:24]}</div>'
-                    f'<div style="color:#666;font-size:11px">{l["w"]}×{l["h"]}px</div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    "▶ 선택" if not is_a else "✎ 편집 중",
-                    key=f"pib{l['idx']}",
-                    use_container_width=True,
-                    type="primary" if is_a else "secondary",
-                ):
-                    st.session_state.pu_act = l['idx']
-                    st.rerun()
-
-        elif not img_lays:
-            st.caption("이미지 레이어 없음 — ① PSD 생성에서 이미지 레이어 체크 후 재저장")
 
     # ── 오른쪽: 이미지만 (st.button/st.columns 없음)
     with col_right:
