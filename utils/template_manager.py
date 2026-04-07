@@ -163,8 +163,23 @@ def save_psd_template(
     # 병합 미리보기 썸네일
     try:
         from utils.psd_parser import psd_to_preview_jpg
+        from PIL import Image as _PILImg
+        import io as _thumbio
         prev = psd_to_preview_jpg(psd_bytes, max_width=360)
-        (tdir / "thumb.jpg").write_bytes(prev)
+        _img = _PILImg.open(_thumbio.BytesIO(prev)).convert("RGB")
+        _W, _H = _img.size
+        # 흰색 상단 스킵 → 실제 콘텐츠부터 썸네일 저장
+        _cy = 0
+        for _y in range(0, _H, 5):
+            _row = [_img.getpixel((_x, _y)) for _x in range(0, _W, 15)]
+            _avg = sum(sum(_p[:3]) for _p in _row) / len(_row) / 3
+            if _avg < 225:
+                _cy = max(0, _y - 5)
+                break
+        _crop = _img.crop((0, _cy, _W, min(_H, _cy + 540)))
+        _buf  = _thumbio.BytesIO()
+        _crop.save(_buf, "JPEG", quality=82)
+        (tdir / "thumb.jpg").write_bytes(_buf.getvalue())
     except Exception:
         pass
 

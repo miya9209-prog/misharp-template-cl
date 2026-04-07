@@ -158,35 +158,31 @@ def render():
                     name = meta.get('name','')
                     w, h = meta.get("canvas_size",[0,0])
 
-                    # 이름 + 정보
+                    # 이름 + 메타
                     st.markdown(f"**{name}**")
                     st.caption(f"PSD · {w}×{h}px · {meta.get('created_at','')[:10]}")
                     if meta.get("description"):
                         st.caption(meta["description"])
 
-                    # 사용 버튼 (작게)
-                    if st.button("사용 →", key=f"tsel_{tid}",
-                                 use_container_width=False, type="primary"):
-                        st.session_state.pu_sel  = tid
-                        st.session_state.pu_inp  = {}
-                        st.session_state.pu_act  = None
-                        st.session_state.pu_prev = None
-                        st.rerun()
+                    # 버튼 행: [사용 →] [🗑️]
+                    _bc1, _bc2 = st.columns([5, 1], gap="small")
+                    with _bc1:
+                        if st.button("사용 →", key=f"tsel_{tid}",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.pu_sel  = tid
+                            st.session_state.pu_inp  = {}
+                            st.session_state.pu_act  = None
+                            st.session_state.pu_prev = None
+                            st.rerun()
+                    with _bc2:
+                        if st.button("🗑️", key=f"del_{tid}", help="삭제",
+                                     use_container_width=True):
+                            st.session_state.pu_del_confirm = tid
+                            st.rerun()
 
-                    # 썸네일 (가로 100%, 세로는 비율 유지 — 상단 기준)
-                    b64 = get_thumb_b64(tid)
-                    if b64:
-                        st.markdown(
-                            f'<div style="width:100%;max-height:120px;overflow:hidden;'
-                            f'border-radius:6px;margin-top:4px;'
-                            f'border:1px solid rgba(255,255,255,0.1)">'
-                            f'<img src="data:image/jpeg;base64,{b64}" '
-                            f'style="width:100%;display:block;"></div>',
-                            unsafe_allow_html=True)
-
-                    # 삭제 버튼
+                    # 삭제 확인
                     if st.session_state.pu_del_confirm == tid:
-                        st.warning("삭제할까요?")
+                        st.warning("정말 삭제할까요?")
                         d1, d2 = st.columns(2)
                         with d1:
                             if st.button("삭제", key=f"del_cfm_{tid}",
@@ -199,11 +195,17 @@ def render():
                                          use_container_width=True):
                                 st.session_state.pu_del_confirm = None
                                 st.rerun()
-                    else:
-                        if st.button("🗑️", key=f"del_{tid}",
-                                     help="템플릿 삭제"):
-                            st.session_state.pu_del_confirm = tid
-                            st.rerun()
+
+                    # 썸네일 (가로 전체, 세로 자동 비율)
+                    b64 = get_thumb_b64(tid)
+                    if b64:
+                        st.markdown(
+                            f'<div style="width:100%;overflow:hidden;'
+                            f'border-radius:6px;margin-top:6px;'
+                            f'border:1px solid rgba(255,255,255,0.1)">'
+                            f'<img src="data:image/jpeg;base64,{b64}" '
+                            f'style="width:100%;display:block;"></div>',
+                            unsafe_allow_html=True)
         return
 
     # ════════════════════════════════════════
